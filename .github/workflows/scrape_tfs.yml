@@ -27,8 +27,17 @@ jobs:
         env:
           TEST_SURAHS: "None"
 
+      - name: Verify output
+        run: |
+          if [ ! -d "dorar_tafseer" ] || [ -z "$(ls -A dorar_tafseer)" ]; then
+            echo "ERROR: dorar_tafseer مفقود أو فارغ"
+            ls -la
+            exit 1
+          fi
+          echo "✔ عدد الملفات: $(ls dorar_tafseer/ | wc -l)"
+
       - name: Compress results
-        run: zip -r dorar_tafseer.zip dorar_by_section/
+        run: zip -r dorar_tafseer.zip dorar_tafseer/
 
       - name: Commit and push results
         run: |
