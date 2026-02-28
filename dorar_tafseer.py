@@ -309,7 +309,8 @@ if __name__ == "__main__":
             stitle = surah["title"]
             surl   = surah["url"]
 
-            filepath = os.path.join(OUT_DIR, f"{snum:03d}_{re.sub(r'[^\\w\\u0600-\\u06FF]', '_', stitle)[:40]}.md")
+            safe     = re.sub(r'[^\w\u0600-\u06FF]', '_', stitle)[:40]
+            filepath = os.path.join(OUT_DIR, f"{snum:03d}_{safe}.md")
             if os.path.exists(filepath):
                 print(f"  ← موجود، تخطي: {filepath}")
                 continue
@@ -353,3 +354,4 @@ if __name__ == "__main__":
         print(e)
     except Exception:
         traceback.print_exc()
+
