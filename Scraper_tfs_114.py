@@ -12,6 +12,10 @@ DELAY   = 1.0
 OUT_DIR = "dorar_tafseer"
 
 
+# ─────────────────────────────────────────────
+# Session
+# ─────────────────────────────────────────────
+
 def make_session():
     s = requests.Session()
     s.headers.update({
@@ -38,9 +42,17 @@ def get_page(session, url, referer=INDEX):
         return ""
 
 
+# ─────────────────────────────────────────────
+# أنماط الروابط
+# ─────────────────────────────────────────────
+
 SURAH_RE   = re.compile(r"^/tafseer/(\d+)$")
 SECTION_RE = re.compile(r"^/tafseer/(\d+)/(\d+)$")
 
+
+# ─────────────────────────────────────────────
+# روابط السور
+# ─────────────────────────────────────────────
 
 def get_surah_links(html):
     soup  = BeautifulSoup(html, "html.parser")
@@ -61,6 +73,10 @@ def get_surah_links(html):
     return links
 
 
+# ─────────────────────────────────────────────
+# أول رابط مقطع في السورة
+# ─────────────────────────────────────────────
+
 def get_first_section_link(html, surah_num):
     soup       = BeautifulSoup(html, "html.parser")
     candidates = []
@@ -77,6 +93,10 @@ def get_first_section_link(html, surah_num):
     return None
 
 
+# ─────────────────────────────────────────────
+# رابط التالي
+# ─────────────────────────────────────────────
+
 def get_next_link(html):
     soup = BeautifulSoup(html, "html.parser")
     for a in soup.find_all("a", href=SECTION_RE):
@@ -84,6 +104,10 @@ def get_next_link(html):
             return BASE + a["href"]
     return None
 
+
+# ─────────────────────────────────────────────
+# عنوان الصفحة
+# ─────────────────────────────────────────────
 
 def get_page_title(html):
     soup = BeautifulSoup(html, "html.parser")
@@ -97,6 +121,10 @@ def get_page_title(html):
         return parts[-1].strip()
     return ""
 
+
+# ─────────────────────────────────────────────
+# استخراج المحتوى
+# ─────────────────────────────────────────────
 
 def extract_content(html):
     soup = BeautifulSoup(html, "html.parser")
@@ -138,6 +166,7 @@ def extract_content(html):
     fn_counter = 1
 
     for art in articles:
+        # الأقواس القرآنية
         for span in art.find_all("span", class_="aaya"):
             span.replace_with(f"﴿{span.get_text(strip=True)}﴾")
         for span in art.find_all("span", class_="sora"):
@@ -147,14 +176,17 @@ def extract_content(html):
         for span in art.find_all("span", class_="title-2"):
             span.replace_with(f"\n#### {span.get_text(strip=True)}\n")
 
+        # حذف روابط التنقل
         for a in art.find_all("a"):
             if re.search(r"السابق|التالي|الصفحة|المراجع|اعتماد", a.get_text()):
                 a.decompose()
 
+        # عناوين HTML
         for i in range(1, 7):
             for h in art.find_all(f"h{i}"):
                 h.replace_with(f"\n{'#' * (i + 2)} {h.get_text(strip=True)}\n")
 
+        # الحواشي — نعالج الأقواس داخل كل حاشية قبل استخراج نصها
         for fn_tag in art.find_all("span", class_="tip"):
             for inner in fn_tag.find_all("span", class_="aaya"):
                 inner.replace_with(f"﴿{inner.get_text(strip=True)}﴾")
@@ -166,28 +198,35 @@ def extract_content(html):
                 fn_tag.replace_with(f" [^{fn_counter}]")
                 fn_counter += 1
 
+        # <br> → مسافة
         for br in art.find_all("br"):
             br.replace_with(" ")
 
-        paras = art.find_all("p")
-        if paras:
-            text = "\n\n".join(
-                re.sub(r' {2,}', ' ', p.get_text(separator=" ", strip=True))
-                for p in paras if p.get_text(strip=True)
-            )
-        else:
-            text = re.sub(r' {2,}', ' ', art.get_text(separator=" ", strip=True))
+        # نضع فواصل صريحة حول كل <p> ثم نسحب النص الكامل
+        # (يحفظ العناوين المحوّلة إلى نصوص + يفصل الفقرات)
+        for p in art.find_all("p"):
+            p.insert_before("\n\n")
+            p.insert_after("\n\n")
 
-        if text.strip():
-            all_text.append(text.strip())
+        text = art.get_text(separator="", strip=False)
+        text = re.sub(r'[ \t]+', ' ', text)       # مسافات متعددة → واحدة
+        text = re.sub(r'\n{3,}', '\n\n', text)    # أسطر فارغة زائدة
+        text = text.strip()
+
+        if text:
+            all_text.append(text)
 
     clean = re.sub(r'\n{3,}', '\n\n', "\n\n".join(all_text)).strip()
     return {"text": clean, "footnotes": footnotes}
 
 
+# ─────────────────────────────────────────────
+# الحفظ
+# ─────────────────────────────────────────────
+
 def save_markdown(surah_title, surah_num, intro, sections):
     safe     = re.sub(r'[^\w\u0600-\u06FF]', '_', surah_title)[:40]
-    filename = str(surah_num).zfill(3) + "_" + safe + ".md"
+    filename = f"{surah_num:03d}_{safe}.md"
     filepath = os.path.join(OUT_DIR, filename)
 
     lines = [
@@ -215,6 +254,7 @@ def save_markdown(surah_title, surah_num, intro, sections):
                 new_fns.append(f"[^{local_map.get(m.group(1), m.group(1))}]:{m.group(2)}")
         return text, new_fns
 
+    # تعريف السورة
     if intro.get("text"):
         lines.append("## تعريف السورة\n\n")
         text, fns = renum(intro["text"], intro.get("footnotes", []))
@@ -223,6 +263,7 @@ def save_markdown(surah_title, surah_num, intro, sections):
             lines.append(f"{fn}\n")
         lines.append("\n---\n\n")
 
+    # المقاطع
     for sec in sections:
         lines.append(f"## {sec['title']}\n\n")
         lines.append(f"> {sec['url']}\n\n")
@@ -240,6 +281,10 @@ def save_markdown(surah_title, surah_num, intro, sections):
     print(f"    ✔ {filepath}  |  {len(sections)} مقطع  |  ~{total//1024} KB")
     return filepath
 
+
+# ─────────────────────────────────────────────
+# Main
+# ─────────────────────────────────────────────
 
 if __name__ == "__main__":
     try:
@@ -264,8 +309,7 @@ if __name__ == "__main__":
             stitle = surah["title"]
             surl   = surah["url"]
 
-            safe     = re.sub(r'[^\w\u0600-\u06FF]', '_', stitle)[:40]
-            filepath = os.path.join(OUT_DIR, str(snum).zfill(3) + "_" + safe + ".md")
+            filepath = os.path.join(OUT_DIR, f"{snum:03d}_{re.sub(r'[^\\w\\u0600-\\u06FF]', '_', stitle)[:40]}.md")
             if os.path.exists(filepath):
                 print(f"  ← موجود، تخطي: {filepath}")
                 continue
@@ -309,3 +353,5 @@ if __name__ == "__main__":
         print(e)
     except Exception:
         traceback.print_exc()
+
+   
