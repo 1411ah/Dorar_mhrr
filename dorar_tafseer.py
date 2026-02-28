@@ -6,10 +6,15 @@ import os
 import traceback
 
 
+import os
+
 BASE    = "https://dorar.net"
 INDEX   = "https://dorar.net/tafseer"
 DELAY   = 1.0
 OUT_DIR = "dorar_tafseer"
+
+# للاختبار: ضع عدد السور (None = كل القرآن)
+TEST_SURAHS = None if os.environ.get("TEST_SURAHS") == "None" else 3
 
 
 # ─────────────────────────────────────────────
@@ -304,6 +309,10 @@ if __name__ == "__main__":
         surah_links = get_surah_links(html_main)
         print(f"\n③ {len(surah_links)} سورة\n")
 
+        if TEST_SURAHS:
+            surah_links = surah_links[:TEST_SURAHS]
+            print(f"   وضع الاختبار: أول {TEST_SURAHS} سور فقط\n")
+
         for surah in surah_links:
             snum   = surah["num"]
             stitle = surah["title"]
@@ -355,3 +364,4 @@ if __name__ == "__main__":
     except Exception:
         traceback.print_exc()
 
+   
