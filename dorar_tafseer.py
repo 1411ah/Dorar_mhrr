@@ -1,7 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 
-url = "https://dorar.net/tafseer/2/1"  # غيّرها لأي صفحة فيها حواشي
+url = "https://dorar.net/tafseer/4/13"  # غيّرها لأي صفحة فيها حواشي
 s = requests.Session()
 s.headers["User-Agent"] = "Mozilla/5.0"
 html = s.get(url, timeout=20).text
