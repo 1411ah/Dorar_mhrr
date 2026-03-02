@@ -13,6 +13,8 @@ OUT_DIR = "dorar_tafseer"
 
 TEST_SURAHS = None if os.environ.get("TEST_SURAHS") == "None" else 3
 
+_TIP_RE = re.compile(r'\x01(\d+)\x01')
+
 
 def make_session():
     s = requests.Session()
@@ -138,6 +140,20 @@ def extract_content(html):
     fn_counter = 1
 
     for art in articles:
+
+        # ── 1. استبدل كل span.tip بعلامة \x01N\x01 أولاً (recursive) ──
+        # هذا يضمن التقاط الحواشي المتداخلة داخل span.hadith وغيره
+        tips_map = {}
+        for tip in art.find_all("span", class_="tip"):
+            tip_text = tip.get_text(strip=True)
+            if tip_text:
+                tips_map[fn_counter] = tip_text
+                tip.replace_with(f"\x01{fn_counter}\x01")
+                fn_counter += 1
+            else:
+                tip.decompose()
+
+        # ── 2. بقية التحويلات ──
         for span in art.find_all("span", class_="aaya"):
             span.replace_with(f"﴿{span.get_text(strip=True)}﴾")
         for span in art.find_all("span", class_="sora"):
@@ -155,17 +171,6 @@ def extract_content(html):
             for h in art.find_all(f"h{i}"):
                 h.replace_with(f"\n{'#' * (i + 2)} {h.get_text(strip=True)}\n")
 
-        for fn_tag in art.find_all("span", class_="tip"):
-            for inner in fn_tag.find_all("span", class_="aaya"):
-                inner.replace_with(f"﴿{inner.get_text(strip=True)}﴾")
-            for inner in fn_tag.find_all("span", class_="hadith"):
-                inner.replace_with(f"«{inner.get_text(strip=True)}»")
-            fn_text = fn_tag.get_text(strip=True)
-            if fn_text:
-                footnotes.append(f"[^{fn_counter}]: {fn_text}")
-                fn_tag.replace_with(f" [^{fn_counter}]")
-                fn_counter += 1
-
         for br in art.find_all("br"):
             br.replace_with("\n")
 
@@ -173,7 +178,17 @@ def extract_content(html):
             p.insert_before("\n\n")
             p.insert_after("\n\n")
 
+        # ── 3. استخرج النص واستبدل العلامات بـ [^N] ──
         text = art.get_text(separator="\n", strip=False)
+
+        def replace_marker(m):
+            tid  = int(m.group(1))
+            body = tips_map.get(tid, "")
+            footnotes.append(f"[^{tid}]: {body}")
+            return f" [^{tid}]"
+
+        text = _TIP_RE.sub(replace_marker, text)
+
         text = re.sub(r'[ \t]+', ' ', text)
         text = re.sub(r'\n{3,}', '\n\n', text)
         text = re.sub(r'(?<!\n)\n(?![\n#>﴿«])', ' ', text)
@@ -236,7 +251,6 @@ def save_markdown(surah_title, surah_num, intro, sections):
             all_footnotes.extend(fns)
         lines.append("---\n\n")
 
-    # ✅ كل الحواشي في نهاية الملف مرة واحدة
     if all_footnotes:
         lines.append("\n")
         for fn in all_footnotes:
