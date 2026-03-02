@@ -1,34 +1,60 @@
-name: Diagnose Tips
+name: Dorar Tafseer Scraper
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      test_surahs:
+        description: 'عدد السور للاختبار (اتركه فارغاً للكل)'
+        required: false
+        default: 'None'
+
+permissions:
+  contents: write
 
 jobs:
-  diag:
+  scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
+
     steps:
-      - uses: actions/setup-python@v5
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install requests beautifulsoup4
-      - run: |
-          python - <<'EOF'
-          import requests
-          from bs4 import BeautifulSoup
 
-          url = "https://dorar.net/tafseer/2/1"
-          s = requests.Session()
-          s.headers["User-Agent"] = "Mozilla/5.0"
-          html = s.get(url, timeout=20).text
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
 
-          soup = BeautifulSoup(html, "html.parser")
-          tips = soup.find_all("span", class_="tip")
-          print(f"عدد span.tip: {len(tips)}\n")
+      - name: Run scraper
+        run: python dorar_tafseer.py
+        env:
+          TEST_SURAHS: ${{ github.event.inputs.test_surahs || 'None' }}
 
-          for i, tip in enumerate(tips[:5]):
-              print(f"── حاشية {i+1} ──")
-              print(f"  get_text()       : {repr(tip.get_text(strip=True)[:100])}")
-              print(f"  title attr       : {repr(tip.get('title', ''))[:100]}")
-              print(f"  data-orig-title  : {repr(tip.get('data-original-title', ''))[:100]}")
-              print(f"  HTML كامل        : {str(tip)[:300]}")
-              print()
-          EOF
+      - name: Verify output
+        run: |
+          if [ ! -d "dorar_tafseer" ] || [ -z "$(ls -A dorar_tafseer)" ]; then
+            echo "ERROR: dorar_tafseer مفقود أو فارغ"
+            ls -la
+            exit 1
+          fi
+          COUNT=$(ls dorar_tafseer/ | wc -l)
+          SIZE=$(du -sh dorar_tafseer/ | cut -f1)
+          echo "✔ عدد الملفات: $COUNT | الحجم: $SIZE"
+          echo "── عينة من الحواشي ──"
+          grep -h "^\[\^" dorar_tafseer/*.md | head -20 || echo "لا حواشي"
+
+      - name: Compress results
+        run: zip -r dorar_tafseer.zip dorar_tafseer/
+
+      - name: Commit and push results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dorar_tafseer.zip
+          git diff --cached --quiet || git commit -m "update: tafseer $(date +'%Y-%m-%d') | $(ls dorar_tafseer/ | wc -l) سور"
+          git push --force
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
