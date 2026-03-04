@@ -237,6 +237,30 @@ def extract_content(html):
     return {"text": clean, "footnotes": footnotes}
 
 
+def fix_multiline_footnotes(text):
+    """دمج كل حاشية متعددة الأسطر في سطر واحد"""
+    lines  = text.splitlines()
+    result = []
+    fn_def = re.compile(r'^\[\^\d+\]:')
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if fn_def.match(line):
+            parts = [line.rstrip()]
+            i += 1
+            while i < len(lines):
+                nxt = lines[i]
+                if nxt == '' or fn_def.match(nxt):
+                    break
+                parts.append(nxt.strip())
+                i += 1
+            result.append(' '.join(p for p in parts if p))
+        else:
+            result.append(line)
+            i += 1
+    return '\n'.join(result)
+
+
 def renum(text, fns, global_fn_ref):
     if not fns:
         return text, []
@@ -303,8 +327,9 @@ def save_markdown(surah_title, surah_num, intro, sections):
         for fn in all_footnotes:
             lines.append(f"{fn}\n")
 
+    content = fix_multiline_footnotes("".join(lines))
     with open(filepath, "w", encoding="utf-8") as f:
-        f.writelines(lines)
+        f.write(content)
 
     total = len(intro.get("text", "")) + sum(len(s.get("text", "")) for s in sections)
     print(f"    ✔ {filepath}  |  {len(sections)} مقطع  |  ~{total//1024} KB  |  {len(all_footnotes)} حاشية")
