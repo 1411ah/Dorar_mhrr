@@ -149,7 +149,6 @@ def extract_content(html):
     block = None
     card  = soup.find("div", class_="card-body")
     if card:
-        # ① الـ pane الـ active مع محتوى فعلي
         for pane in card.find_all("div", class_="tab-pane"):
             if "active" not in pane.get("class", []):
                 continue
@@ -157,14 +156,12 @@ def extract_content(html):
                 block = pane
                 break
 
-        # ② fallback: أي pane يحتوي <article> بغض النظر عن active
         if not block:
             for pane in card.find_all("div", class_="tab-pane"):
                 if pane.find("article"):
                     block = pane
                     break
 
-        # ③ fallback أخير: أطول pane نصاً
         if not block:
             best, best_len = None, 0
             for pane in card.find_all("div", class_="tab-pane"):
@@ -177,7 +174,11 @@ def extract_content(html):
     if not block:
         block = soup.find("body") or soup
 
-    articles  = block.find_all("article") or [block]
+    # ── الإصلاح: إذا الـ block لا يحتوي articles، ابحث في كامل الصفحة
+    articles = block.find_all("article")
+    if not articles:
+        articles = soup.find_all("article") or [block]
+
     all_text  = []
     footnotes = []
 
