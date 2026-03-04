@@ -206,21 +206,26 @@ def extract_content(html):
         print(f"  [AFTER_T2] {len(art.get_text(strip=True))} حرف")
         for span in art.find_all("span", class_="title-1"):
             span.replace_with(f"\n##### {span.get_text(strip=True)}\n")
+        print(f"  [AFTER_T1] {len(art.get_text(strip=True))}")
 
         for a in art.find_all("a"):
             if re.search(r"السابق|التالي|الصفحة|المراجع|اعتماد", a.get_text()):
                 a.decompose()
+        print(f"  [AFTER_A] {len(art.get_text(strip=True))}")
 
         for i in range(1, 7):
             for h in art.find_all(f"h{i}"):
                 h.replace_with(f"\n{'#' * (i + 2)} {h.get_text(strip=True)}\n")
+        print(f"  [AFTER_H] {len(art.get_text(strip=True))}")
 
         for br in art.find_all("br"):
             br.replace_with("\n")
+        print(f"  [AFTER_BR] {len(art.get_text(strip=True))}")
 
         for p in art.find_all("p"):
             p.insert_before("\n\n")
             p.insert_after("\n\n")
+        print(f"  [AFTER_P] {len(art.get_text(strip=True))}")
 
         # ── 3. استخرج النص واستبدل العلامات بـ [^N]
         text     = art.get_text(separator="\n", strip=False)
