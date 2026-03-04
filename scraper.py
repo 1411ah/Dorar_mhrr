@@ -11,7 +11,7 @@ INDEX   = "https://dorar.net/tafseer"
 DELAY   = 1.0
 OUT_DIR = "dorar_tafseer"
 
-TEST_SURAHS = None if os.environ.get("TEST_SURAHS") == "None" else (
+TEST_SURAHS = None if os.environ.get("TEST_SURAHS") == "None" else 
     int(os.environ["TEST_SURAHS"]) if os.environ.get("TEST_SURAHS") else None
 )
 
