@@ -93,7 +93,10 @@ def diag(html):
             print(f"   أول 600:\n{outside_sec[:600]!r}")
     else:
         print("── لا يوجد <section> داخل block")
-
+# ── محتوى article [5] كامل
+    if len(articles) >= 5:
+        print("\n── نص article [5] كامل:")
+        print(articles[4].get_text(strip=True))
 if __name__ == "__main__":
     s = make_session()
     html = fetch(s, URL)
