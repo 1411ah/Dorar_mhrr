@@ -159,9 +159,8 @@ def extract_content(html):
         for pane in card.find_all("div", class_="tab-pane"):
             if "active" not in pane.get("class", []):
                 continue
-            text  = pane.get_text(strip=True)
-            links = pane.find_all("a", href=SECTION_RE)
-            if len(text) > 200 and len(links) <= 2:
+            # اختر الـ pane الذي يحتوي محتوى فعلياً (articles أو نص طويل)
+            if pane.find("article") or len(pane.get_text(strip=True)) > 200:
                 block = pane
                 break
 
