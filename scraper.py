@@ -136,7 +136,6 @@ def extract_content(html):
         tag.decompose()
     for pat in [
         re.compile(r"\bmodal\b"),
-        re.compile(r"\breadMore\b"),
         re.compile(r"\balert-dorar\b"),
         re.compile(r"\btitle-manhag\b"),
         re.compile(r"\bdefault-gradient\b"),
