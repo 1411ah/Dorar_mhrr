@@ -105,7 +105,6 @@ def get_page_title(html):
 
 
 def convert_inner_soup(soup_tag):
-    """تحويل العناصر الداخلية في كائن BeautifulSoup"""
     for inner in soup_tag.find_all("span", class_="aaya"):
         inner.replace_with(f"﴿{inner.get_text(strip=True)}﴾")
     for inner in soup_tag.find_all("span", class_="hadith"):
@@ -117,11 +116,6 @@ def convert_inner_soup(soup_tag):
 
 
 def get_tip_text(tip):
-    """
-    استخراج نص الحاشية مع الحفاظ على أقواس الآيات.
-    الـ attribute قد يحتوي على HTML — نُحلّله قبل استخراج النص.
-    markers الحواشي المتداخلة \x01N\x01 تُحذف من النص النهائي.
-    """
     _marker = re.compile(r'\x01\d+\x01')
     for attr in ("data-original-title", "title", "data-content", "data-tippy-content"):
         val = tip.get(attr, "").strip()
@@ -130,7 +124,6 @@ def get_tip_text(tip):
             convert_inner_soup(inner_soup)
             result = re.sub(r'\s+', ' ', inner_soup.get_text()).strip()
             return _marker.sub('', result).strip()
-    # fallback: استخرج من DOM مباشرة
     convert_inner_soup(tip)
     result = re.sub(r'\s+', ' ', tip.get_text(strip=True)).strip()
     return _marker.sub('', result).strip()
@@ -156,13 +149,30 @@ def extract_content(html):
     block = None
     card  = soup.find("div", class_="card-body")
     if card:
+        # ① الـ pane الـ active مع محتوى فعلي
         for pane in card.find_all("div", class_="tab-pane"):
             if "active" not in pane.get("class", []):
                 continue
-            # اختر الـ pane الذي يحتوي محتوى فعلياً (articles أو نص طويل)
             if pane.find("article") or len(pane.get_text(strip=True)) > 200:
                 block = pane
                 break
+
+        # ② fallback: أي pane يحتوي <article> بغض النظر عن active
+        if not block:
+            for pane in card.find_all("div", class_="tab-pane"):
+                if pane.find("article"):
+                    block = pane
+                    break
+
+        # ③ fallback أخير: أطول pane نصاً
+        if not block:
+            best, best_len = None, 0
+            for pane in card.find_all("div", class_="tab-pane"):
+                t = len(pane.get_text(strip=True))
+                if t > best_len:
+                    best_len, best = t, pane
+            if best_len > 200:
+                block = best
 
     if not block:
         block = soup.find("body") or soup
@@ -173,11 +183,11 @@ def extract_content(html):
 
     for art in articles:
 
-        # ── 1. استخرج الحواشي أولاً — معالجة عكسية لحل مشكلة التداخل ──
+        # ── 1. استخرج الحواشي أولاً
         tips_map    = {}
         tip_counter = [1]
         for tip in reversed(list(art.find_all("span", class_="tip"))):
-            tip_text = get_tip_text(tip)                    # ← يُحلّل الـ attribute كـ HTML
+            tip_text = get_tip_text(tip)
             if tip_text:
                 tips_map[tip_counter[0]] = tip_text
                 tip.replace_with(f"\x01{tip_counter[0]}\x01")
@@ -185,7 +195,7 @@ def extract_content(html):
             else:
                 tip.decompose()
 
-        # ── 2. بقية التحويلات ──
+        # ── 2. بقية التحويلات
         for span in art.find_all("span", class_="aaya"):
             span.replace_with(f"﴿{span.get_text(strip=True)}﴾")
         for span in art.find_all("span", class_="sora"):
@@ -212,9 +222,9 @@ def extract_content(html):
             p.insert_before("\n\n")
             p.insert_after("\n\n")
 
-        # ── 3. استخرج النص واستبدل العلامات بـ [^N] ──
+        # ── 3. استخرج النص واستبدل العلامات بـ [^N]
         text     = art.get_text(separator="\n", strip=False)
-        local_fn = [len(footnotes) + 1]   # ← يكمل الترقيم من حيث توقف
+        local_fn = [len(footnotes) + 1]
 
         def replace_marker(m, _tips=tips_map, _fns=footnotes, _ctr=local_fn):
             tid  = int(m.group(1))
@@ -227,7 +237,6 @@ def extract_content(html):
         text = _TIP_RE.sub(replace_marker, text)
         text = re.sub(r'[ \t]+', ' ', text)
         text = re.sub(r'\n{3,}', '\n\n', text)
-        # احفظ الأسطر التي تبدأ بأرقام قائمة (1- 2- ...) ولا تدمجها
         text = re.sub(r'(?<!\n)\n(?![\n#>﴿«\d])', ' ', text)
         text = re.sub(r'\n{3,}', '\n\n', text)
         text = text.strip()
@@ -240,7 +249,6 @@ def extract_content(html):
 
 
 def fix_multiline_footnotes(text):
-    """دمج كل حاشية متعددة الأسطر في سطر واحد"""
     lines  = text.splitlines()
     result = []
     fn_def = re.compile(r'^\[\^\d+\]:')
