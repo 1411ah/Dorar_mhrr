@@ -180,7 +180,6 @@ def extract_content(html):
     footnotes = []
 
     for art in articles:
-        print(f"  [RAW] {len(art.get_text(strip=True))} حرف | أول 100: {art.get_text(strip=True)[:100]!r}")
 
         # ── 1. استخرج الحواشي أولاً
         tips_map    = {}
@@ -225,7 +224,6 @@ def extract_content(html):
 
         # ── 3. استخرج النص واستبدل العلامات بـ [^N]
         text     = art.get_text(separator="\n", strip=False)
-        print(f"  [S0_gettext] {len(text)}")
         local_fn = [len(footnotes) + 1]
 
         def replace_marker(m, _tips=tips_map, _fns=footnotes, _ctr=local_fn):
@@ -237,24 +235,16 @@ def extract_content(html):
             return ref
 
         text = _TIP_RE.sub(replace_marker, text)
-        print(f"  [S1_tip] {len(text)}")
         text = re.sub(r'[ \t]+', ' ', text)
-        print(f"  [S2_space] {len(text)}")
         text = re.sub(r'\n{3,}', '\n\n', text)
-        print(f"  [S3_nl3] {len(text)}")
         text = re.sub(r'(?<!\n)\n(?![\n#>﴿«\d])', ' ', text)
-        print(f"  [S4_nl1] {len(text)}")
         text = re.sub(r'\n{3,}', '\n\n', text)
-        print(f"  [S5_nl3] {len(text)}")
         text = text.strip()
-        print(f"  [S6_strip] {len(text)}")
 
         if text:
-            print(f"  [ART] {len(text)} حرف | أول 60: {text[:60]!r}")
             all_text.append(text)
 
     clean = re.sub(r'\n{3,}', '\n\n', "\n\n".join(all_text)).strip()
-    print(f"  [DBG] extract_content: {len(clean)} حرف | آخر 200: {clean[-200:]!r}")
     return {"text": clean, "footnotes": footnotes}
 
 
