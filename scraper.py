@@ -120,16 +120,20 @@ def get_tip_text(tip):
     """
     استخراج نص الحاشية مع الحفاظ على أقواس الآيات.
     الـ attribute قد يحتوي على HTML — نُحلّله قبل استخراج النص.
+    markers الحواشي المتداخلة \x01N\x01 تُحذف من النص النهائي.
     """
+    _marker = re.compile(r'\x01\d+\x01')
     for attr in ("data-original-title", "title", "data-content", "data-tippy-content"):
         val = tip.get(attr, "").strip()
         if val:
             inner_soup = BeautifulSoup(val, "html.parser")
             convert_inner_soup(inner_soup)
-            return re.sub(r'\s+', ' ', inner_soup.get_text()).strip()
+            result = re.sub(r'\s+', ' ', inner_soup.get_text()).strip()
+            return _marker.sub('', result).strip()
     # fallback: استخرج من DOM مباشرة
     convert_inner_soup(tip)
-    return re.sub(r'\s+', ' ', tip.get_text(strip=True)).strip()
+    result = re.sub(r'\s+', ' ', tip.get_text(strip=True)).strip()
+    return _marker.sub('', result).strip()
 
 
 def extract_content(html):
@@ -170,10 +174,10 @@ def extract_content(html):
 
     for art in articles:
 
-        # ── 1. استخرج كل الحواشي أولاً مع تحويل عناصرها الداخلية ──
-        tips_map   = {}
+        # ── 1. استخرج الحواشي أولاً — معالجة عكسية لحل مشكلة التداخل ──
+        tips_map    = {}
         tip_counter = [1]
-        for tip in art.find_all("span", class_="tip"):
+        for tip in reversed(list(art.find_all("span", class_="tip"))):
             tip_text = get_tip_text(tip)                    # ← يُحلّل الـ attribute كـ HTML
             if tip_text:
                 tips_map[tip_counter[0]] = tip_text
