@@ -218,10 +218,6 @@ def extract_content(html):
                 h.replace_with(f"\n{'#' * (i + 2)} {h.get_text(strip=True)}\n")
         print(f"  [AFTER_H] {len(art.get_text(strip=True))}")
 
-        for br in art.find_all("br"):
-            br.replace_with("\n")
-        print(f"  [AFTER_BR] {len(art.get_text(strip=True))}")
-
         for p in art.find_all("p"):
             p.insert_before("\n\n")
             p.insert_after("\n\n")
