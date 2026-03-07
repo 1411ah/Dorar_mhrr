@@ -108,7 +108,7 @@ def convert_inner_soup(soup_tag):
     for inner in soup_tag.find_all("span", class_="aaya"):
         inner.replace_with(f"﴿{inner.get_text(strip=True)}﴾")
     for inner in soup_tag.find_all("span", class_="hadith"):
-        inner.replace_with(f"«{inner.get_text(strip=True)}»")
+        inner.replace_with(inner.get_text(strip=True))  # ← بدون أقواس
     for inner in soup_tag.find_all("span", class_="sora"):
         t = inner.get_text(strip=True)
         if t:
@@ -171,7 +171,6 @@ def extract_content(html):
     if not block:
         block = soup.find("body") or soup
 
-    # إذا الـ block لا يحتوي articles، ابحث في كامل الصفحة
     articles = block.find_all("article")
     if not articles:
         articles = soup.find_all("article") or [block]
@@ -181,7 +180,6 @@ def extract_content(html):
 
     for art in articles:
 
-        # ── 1. استخرج الحواشي أولاً
         tips_map    = {}
         tip_counter = [1]
         for tip in reversed(list(art.find_all("span", class_="tip"))):
@@ -193,13 +191,12 @@ def extract_content(html):
             else:
                 tip.decompose()
 
-        # ── 2. بقية التحويلات
         for span in art.find_all("span", class_="aaya"):
             span.replace_with(f"﴿{span.get_text(strip=True)}﴾")
         for span in art.find_all("span", class_="sora"):
             span.replace_with(f" {span.get_text(strip=True)} ")
         for span in art.find_all("span", class_="hadith"):
-            span.replace_with(f"«{span.get_text(strip=True)}»")
+            span.replace_with(span.get_text(strip=True))  # ← بدون أقواس
         for span in art.find_all("span", class_="title-2"):
             span.replace_with(f"\n#### {span.get_text(strip=True)}\n")
         print(f"  [AFTER_T2] {len(art.get_text(strip=True))} حرف")
@@ -222,7 +219,6 @@ def extract_content(html):
             p.insert_after("\n\n")
         print(f"  [AFTER_P] {len(art.get_text(strip=True))}")
 
-        # ── 3. استخرج النص واستبدل العلامات بـ [^N]
         text     = art.get_text(separator="\n", strip=False)
         local_fn = [len(footnotes) + 1]
 
