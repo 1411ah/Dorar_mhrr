@@ -251,6 +251,35 @@ def get_tip_text(tip):
     result = re.sub(r'\s+', ' ', tip.get_text(strip=True)).strip()
     return _marker.sub('', result).strip()
 
+def extract_quran_block(html, session):
+    """
+    يستخرج div#qpage ويُعيد:
+    - html_block : HTML جاهز للإدراج
+    - font_pages : set من أرقام الصفحات المحتاجة
+    """
+    soup  = BeautifulSoup(html, "html.parser")
+    qpage = soup.find("div", id="qpage")
+    if not qpage:
+        return "", set()
+
+    font_pages = set()
+    for span in qpage.find_all("span"):
+        sid = span.get("id", "")
+        m   = re.match(r"pg(\d+)$", sid)
+        if m:
+            pnum = int(m.group(1))
+            font_pages.add(pnum)
+            span["class"] = f"qcf-pg{pnum}"
+            del span["id"]
+
+    qpage["class"] = "qpage-block"
+    for attr in ("style", "id"):
+        if attr in qpage.attrs:
+            del qpage[attr]
+
+    return str(qpage), font_pages
+
+
 def extract_content(html):
     """يُعيد {"text_html": str, "footnotes": [(id, text)]}"""
     soup = BeautifulSoup(html, "html.parser")
