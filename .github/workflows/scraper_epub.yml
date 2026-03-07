@@ -39,7 +39,7 @@ jobs:
             git add dorar_tafseer_epub/
             git diff --cached --quiet || (
               git commit -m "update: تحديث ملف EPUB"
-              git pull origin main --rebase
+              git pull origin main --no-rebase -X ours
               git push
             )
           else
