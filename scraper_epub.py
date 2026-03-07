@@ -3,10 +3,10 @@ from bs4 import BeautifulSoup
 import re, time, os, traceback
 from ebooklib import epub
 
-BASE    = "https://dorar.net"
-INDEX   = "https://dorar.net/tafseer"
-DELAY   = 1.0
-OUT_DIR = "dorar_tafseer_epub"
+BASE      = "https://dorar.net"
+INDEX     = "https://dorar.net/tafseer"
+DELAY     = 1.0
+OUT_DIR   = "dorar_tafseer_epub"
 EPUB_FILE = os.path.join(OUT_DIR, "موسوعة_التفسير.epub")
 
 TEST_SURAHS = None if os.environ.get("TEST_SURAHS") == "None" else (
@@ -38,10 +38,8 @@ h4 { font-size: 1em; color: #555; margin-top: 0.8em; }
 .section-title { font-weight: bold; color: #333; }
 hr { border: none; border-top: 1px solid #ccc; margin: 1.5em 0; }
 
-/* آيات قرآنية */
 .quran { font-family: "Amiri Quran", "Traditional Arabic", serif; color: #1a4a1a; }
 
-/* حواشي */
 .footnote-ref { font-size: 0.75em; vertical-align: super; color: #0055aa; text-decoration: none; }
 .footnotes { margin-top: 2em; border-top: 1px solid #ccc; padding-top: 1em; font-size: 0.85em; color: #444; }
 .footnote { margin: 0.4em 0; }
@@ -139,7 +137,7 @@ def convert_inner_soup(soup_tag):
     for inner in soup_tag.find_all("span", class_="aaya"):
         inner.replace_with(f"﴿{inner.get_text(strip=True)}﴾")
     for inner in soup_tag.find_all("span", class_="hadith"):
-        inner.replace_with(f"«{inner.get_text(strip=True)}»")
+        inner.replace_with(inner.get_text(strip=True))  # ← بدون أقواس
     for inner in soup_tag.find_all("span", class_="sora"):
         t = inner.get_text(strip=True)
         if t:
@@ -195,7 +193,7 @@ def extract_content(html):
         articles = soup.find_all("article") or [block]
 
     all_html  = []
-    footnotes = []   # [(global_id, text), ...]
+    footnotes = []
 
     for art in articles:
         tips_map    = {}
@@ -214,7 +212,7 @@ def extract_content(html):
         for span in art.find_all("span", class_="sora"):
             span.replace_with(f" {span.get_text(strip=True)} ")
         for span in art.find_all("span", class_="hadith"):
-            span.replace_with(f"«{span.get_text(strip=True)}»")
+            span.replace_with(span.get_text(strip=True))  # ← بدون أقواس
         for span in art.find_all("span", class_="title-2"):
             span.replace_with(f'<h4>{span.get_text(strip=True)}</h4>')
         for span in art.find_all("span", class_="title-1"):
@@ -225,7 +223,6 @@ def extract_content(html):
         for i in range(1, 7):
             for h in art.find_all(f"h{i}"):
                 h.replace_with(f'<h{min(i+2,6)}>{h.get_text(strip=True)}</h{min(i+2,6)}>')
-
         for p in art.find_all("p"):
             p.insert_before("\n\n")
             p.insert_after("\n\n")
@@ -256,67 +253,26 @@ def extract_content(html):
 
 
 # ══════════════════════════════════════════════
-# بناء HTML فصل السورة
+# بناء HTML صفحة واحدة
 # ══════════════════════════════════════════════
 
-def build_chapter_html(surah_title, surah_num, intro, sections):
-    """يبني HTML كاملاً لفصل السورة."""
-    parts = []
-    all_footnotes = []  # (gid, text) مُعاد ترقيمه
+def build_page_html(title, source_url, parsed):
+    """يبني HTML لصفحة مستقلة (تعريف أو مقطع)."""
+    parts = [
+        f'<h1>{title}</h1>',
+        f'<p class="source">{source_url}</p>',
+        '<hr/>',
+    ]
 
-    fn_offset = [0]
+    text_html  = parsed.get("text_html", "")
+    footnotes  = parsed.get("footnotes", [])
 
-    def shift_fns(text_html, footnotes):
-        """يُعيد ترقيم الحواشي ضمن block واحد."""
-        shifted = []
-        mapping = {}
-        for (gid, body) in footnotes:
-            new_id = fn_offset[0] + 1
-            fn_offset[0] += 1
-            mapping[gid] = new_id
-            shifted.append((new_id, body))
-            all_footnotes.append((new_id, body))
+    if text_html:
+        parts.append(text_html)
 
-        def fix_ref(m):
-            old = int(re.search(r'id="fnref(\d+)"', m.group(0)).group(1))
-            new = mapping.get(old, old)
-            return (f'<a class="footnote-ref" id="fnref{new}" '
-                    f'href="#fn{new}">[{new}]</a>')
-
-        text_html = re.sub(
-            r'<a class="footnote-ref"[^>]+>\[\d+\]</a>',
-            fix_ref, text_html
-        )
-        return text_html, shifted
-
-    # ── رأس الصفحة
-    parts.append(f'<h1>{surah_title}</h1>')
-    parts.append(f'<p class="source">المصدر: {BASE}/tafseer/{surah_num}</p>')
-    parts.append('<hr/>')
-
-    # ── تعريف السورة
-    if intro.get("text_html"):
-        parts.append('<div class="intro-section">')
-        parts.append('<h2>تعريف السورة</h2>')
-        html, _ = shift_fns(intro["text_html"], intro.get("footnotes", []))
-        parts.append(html)
-        parts.append('</div>')
-        parts.append('<hr/>')
-
-    # ── مقاطع التفسير
-    for sec in sections:
-        parts.append(f'<h2>{sec["title"]}</h2>')
-        parts.append(f'<p class="source">{sec["url"]}</p>')
-        if sec.get("text_html"):
-            html, _ = shift_fns(sec["text_html"], sec.get("footnotes", []))
-            parts.append(html)
-        parts.append('<hr/>')
-
-    # ── الحواشي
-    if all_footnotes:
-        parts.append('<div class="footnotes">')
-        parts.append('<h3>الحواشي</h3>')
-        for (fid, body) in all_footnotes:
+    if footnotes:
+        parts.append('<div class="footnotes"><h3>الحواشي</h3>')
+        for (fid, body) in footnotes:
             parts.append(
                 f'<p class="footnote" id="fn{fid}">'
                 f'[{fid}] {body} '
@@ -328,13 +284,29 @@ def build_chapter_html(surah_title, surah_num, intro, sections):
     return "\n".join(parts)
 
 
+def wrap_xhtml(title, body_html):
+    return (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        '<!DOCTYPE html>'
+        '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ar" dir="rtl">'
+        '<head>'
+        f'<title>{title}</title>'
+        '<meta charset="utf-8"/>'
+        '<link rel="stylesheet" href="../style/main.css" type="text/css"/>'
+        '</head>'
+        f'<body>{body_html}</body>'
+        '</html>'
+    ).encode("utf-8")
+
+
 # ══════════════════════════════════════════════
 # حفظ EPUB
 # ══════════════════════════════════════════════
 
 def save_epub(book_data):
     """
-    book_data: [{"surah_title", "surah_num", "chapter_html", "sections_titles": [...]}]
+    book_data: [{"surah_title", "surah_num", "surah_url", "intro", "sections": [...]}]
+    كل section: {"title", "url", "text_html", "footnotes"}
     """
     os.makedirs(OUT_DIR, exist_ok=True)
     book = epub.EpubBook()
@@ -344,7 +316,6 @@ def save_epub(book_data):
     book.add_author("موسوعة الدرر السنية")
     book.set_direction("rtl")
 
-    # CSS
     css = epub.EpubItem(
         uid="style",
         file_name="style/main.css",
@@ -353,47 +324,42 @@ def save_epub(book_data):
     )
     book.add_item(css)
 
-    spine   = ["nav"]
-    toc     = []
+    spine = ["nav"]
+    toc   = []
 
     for entry in book_data:
         snum   = entry["surah_num"]
         stitle = entry["surah_title"]
-        chtml  = entry["chapter_html"]
-        secs   = entry["sections_titles"]
+        surl   = entry["surah_url"]
+        intro  = entry["intro"]
+        sections = entry["sections"]
 
-        fname = f"surah_{snum:03d}.xhtml"
-        chap  = epub.EpubHtml(
-            title    = stitle,
-            file_name= fname,
-            lang     = "ar",
-            direction= "rtl",
-        )
-        chap.content = (
-            '<?xml version="1.0" encoding="utf-8"?>'
-            '<!DOCTYPE html>'
-            '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="ar" dir="rtl">'
-            '<head>'
-            f'<title>{stitle}</title>'
-            '<meta charset="utf-8"/>'
-            '<link rel="stylesheet" href="../style/main.css" type="text/css"/>'
-            '</head>'
-            f'<body>{chtml}</body>'
-            '</html>'
-        ).encode("utf-8")
-        chap.add_item(css)
-        book.add_item(chap)
-        spine.append(chap)
+        surah_pages = []  # EpubHtml items لهذه السورة
 
-        # TOC: السورة كعنوان رئيسي، مقاطعها كعناوين فرعية
-        sub_links = [
-            epub.Link(f"{fname}#sec_{i}", t, f"surah{snum}_sec{i}")
-            for i, t in enumerate(secs)
-        ]
-        if sub_links:
-            toc.append((epub.Section(stitle, href=fname), sub_links))
-        else:
-            toc.append(epub.Link(fname, stitle, f"surah{snum}"))
+        # ── صفحة التعريف
+        intro_fname = f"s{snum:03d}_intro.xhtml"
+        intro_html  = build_page_html(f"{stitle} — تعريف السورة", surl, intro)
+        intro_item  = epub.EpubHtml(title=f"{stitle} — تعريف", file_name=intro_fname, lang="ar", direction="rtl")
+        intro_item.content = wrap_xhtml(f"{stitle} — تعريف", intro_html)
+        intro_item.add_item(css)
+        book.add_item(intro_item)
+        spine.append(intro_item)
+        surah_pages.append(intro_item)
+
+        # ── صفحة لكل مقطع
+        for i, sec in enumerate(sections, 1):
+            fname    = f"s{snum:03d}_sec{i:03d}.xhtml"
+            sec_html = build_page_html(sec["title"], sec["url"], sec)
+            item     = epub.EpubHtml(title=sec["title"], file_name=fname, lang="ar", direction="rtl")
+            item.content = wrap_xhtml(sec["title"], sec_html)
+            item.add_item(css)
+            book.add_item(item)
+            spine.append(item)
+            surah_pages.append(item)
+
+        # ── إدخال الفهرس: السورة كقسم، صفحاتها كروابط فرعية
+        sub_links = [epub.Link(p.file_name, p.title, p.file_name) for p in surah_pages]
+        toc.append((epub.Section(stitle, href=intro_fname), sub_links))
 
     book.toc   = toc
     book.spine = spine
@@ -469,12 +435,12 @@ if __name__ == "__main__":
 
             print(f"  → {len(sections)} مقطع")
 
-            chapter_html = build_chapter_html(stitle, snum, intro, sections)
             book_data.append({
-                "surah_num"      : snum,
-                "surah_title"    : stitle,
-                "chapter_html"   : chapter_html,
-                "sections_titles": [s["title"] for s in sections],
+                "surah_num"  : snum,
+                "surah_title": stitle,
+                "surah_url"  : surl,
+                "intro"      : intro,
+                "sections"   : sections,
             })
 
         print("\n④ بناء EPUB...")
