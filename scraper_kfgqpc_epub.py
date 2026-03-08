@@ -13,7 +13,7 @@ KFGQPC_BASE      = "https://cdn.jsdelivr.net/gh/thetruetruth/quran-data-kfgqpc@m
 QURAN_JSON_URL   = f"{KFGQPC_BASE}/hafs-smart/hafs_smart_v8.json"
 FONT_URL         = f"{KFGQPC_BASE}/hafs-smart/font/hafssmart.8.ttf"
 QURAN_JSON_LOCAL = "hafs_smart_v8.json"
-FONT_LOCAL       = os.path.join("quran_data", "hafs-smart", "font", "hafssmart.8.ttf")
+FONT_LOCAL       = "hafssmart.8.ttf"
 
 TEST_SURAHS = None if os.environ.get("TEST_SURAHS") == "None" else (
     int(os.environ["TEST_SURAHS"]) if os.environ.get("TEST_SURAHS") else None
