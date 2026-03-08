@@ -1,0 +1,58 @@
+name: Scrape Tafseer MD
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_surahs:
+        description: 'عدد السور للاختبار (اتركه فارغاً للكل)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run scraper
+        env:
+          TEST_SURAHS: ${{ github.event.inputs.test_surahs || 'None' }}
+        run: python scraper_md.py
+
+      - name: Check output
+        run: |
+          echo "=== محتوى المجلد ==="
+          ls -lah dorar_tafseer_md/ 2>/dev/null || echo "المجلد غير موجود"
+          echo "=== عدد الملفات ==="
+          find dorar_tafseer_md/ -name "*.md" 2>/dev/null | wc -l
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          COUNT=$(find dorar_tafseer_md/ -name "*.md" 2>/dev/null | wc -l)
+          if [ "$COUNT" -gt 0 ]; then
+            git add dorar_tafseer_md/
+            git diff --cached --quiet && echo "لا تغييرات للـ commit" || (
+              git commit -m "update: تحديث ملفات MD ($COUNT سورة)"
+              git pull origin main --no-rebase -X ours
+              git push
+            )
+          else
+            echo "⚠️ لا توجد ملفات md — راجع لوج خطوة Run scraper"
+            exit 1
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
