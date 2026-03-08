@@ -40,11 +40,19 @@ jobs:
           echo "=== حجم الملف ==="
           du -sh dorar_tafseer_epub/*.epub 2>/dev/null || echo "لا يوجد EPUB"
 
+      - name: Check output
+        run: |
+          echo "=== محتوى المجلد ==="
+          ls -lah dorar_tafseer_epub/ 2>/dev/null || echo "المجلد غير موجود"
+          echo "=== أسماء الملفات hex ==="
+          ls dorar_tafseer_epub/ | xxd | head -20
+
       - name: Commit results
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          if [ -f "dorar_tafseer_epub/موسوعة_التفسير_بالخط_العثماني.epub" ]; then
+          EPUB=$(ls dorar_tafseer_epub/*.epub 2>/dev/null | head -1)
+          if [ -n "$EPUB" ]; then
             git add dorar_tafseer_epub/
             git diff --cached --quiet && echo "لا تغييرات للـ commit" || (
               git commit -m "update: تحديث ملف EPUB"
@@ -52,7 +60,7 @@ jobs:
               git push
             )
           else
-            echo "⚠️ الملف غير موجود — راجع لوج خطوة Run scraper"
+            echo "⚠️ لا يوجد ملف epub في المجلد"
             exit 1
           fi
         env:
