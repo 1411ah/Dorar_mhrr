@@ -56,8 +56,12 @@ jobs:
             git add dorar_tafseer_epub/
             git diff --cached --quiet && echo "لا تغييرات للـ commit" || (
               git commit -m "update: تحديث ملف EPUB"
-              git pull origin main --no-rebase -X ours
-              git push
+              git fetch origin main
+              git checkout FETCH_HEAD -- . 2>/dev/null || true
+              git checkout HEAD -- dorar_tafseer_epub/
+              git add dorar_tafseer_epub/
+              git commit --amend --no-edit 2>/dev/null || true
+              git push origin HEAD:main --force-with-lease
             )
           else
             echo "⚠️ لا يوجد ملف epub في المجلد"
