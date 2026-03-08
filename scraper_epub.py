@@ -3,22 +3,27 @@ from bs4 import BeautifulSoup
 import re, time, os, traceback
 from ebooklib import epub
 
-BASE      = "https://dorar.net"
-INDEX     = "https://dorar.net/tafseer"
-DELAY     = 1.0
-OUT_DIR   = "dorar_tafseer_epub"
-EPUB_FILE = os.path.join(OUT_DIR, "موسوعة_التفسير_بالخط_العثماني.epub")
+BASE       = "https://dorar.net"
+INDEX      = "https://dorar.net/tafseer"
+DELAY      = 1.0
+OUT_DIR    = "dorar_tafseer_epub"
+EPUB_FILE  = os.path.join(OUT_DIR, "موسوعة_التفسير_بالخط_العثماني.epub")
+QURAN_FILE = "quran-uthmani.txt"
 
 TEST_SURAHS = None if os.environ.get("TEST_SURAHS") == "None" else (
     int(os.environ["TEST_SURAHS"]) if os.environ.get("TEST_SURAHS") else None
 )
 
 _TIP_RE            = re.compile(r'\x01(\d+)\x01')
-_amiri_font_bytes: bytes | None = None
 _AYAH_RANGE_RE     = re.compile(r'الآيات?\s*\((\d+)(?:-(\d+))?\)')
+_quran_db: dict[int, dict[int, str]] = {}
+_amiri_font_bytes  = None
 
+AMIRI_QURAN_URL = "https://github.com/aliftype/amiri/raw/main/AmiriQuran.ttf"
 
 ARABIC_CSS = """
+@charset "UTF-8";
+
 @font-face {
     font-family: "AmiriQuran";
     src: url("../fonts/AmiriQuran.ttf") format("truetype");
@@ -38,7 +43,7 @@ body {
 h1 { font-size: 1em; text-align: right; border-bottom: 2px solid #444; padding-bottom: 0.3em; margin-top: 1em; font-weight: bold; }
 h2 { font-size: 1em; text-align: right; color: #2c2c2c; margin-top: 1.5em; font-weight: bold; }
 h3 { font-size: 1em; text-align: right; color: #3a3a3a; margin-top: 1em; font-weight: bold; }
-h4 { font-size: 1em; text-align: right; color: #555;    margin-top: 0.8em; font-weight: bold; }
+h4 { font-size: 1em; text-align: right; color: #555; margin-top: 0.8em; font-weight: bold; }
 
 p { margin: 0.6em 0; }
 
@@ -47,14 +52,14 @@ p { margin: 0.6em 0; }
 hr { border: none; border-top: 1px solid #ccc; margin: 1.5em 0; }
 
 .quran {
-    font-family: "Amiri Quran", "KFGQPC Uthmanic Script HAFS", "Scheherazade New",
-                 "Traditional Arabic", serif;
+    font-family: "AmiriQuran", "Amiri Quran", "KFGQPC Uthmanic Script HAFS",
+                 "Scheherazade New", "Traditional Arabic", serif;
     color: #1a4a1a;
 }
 
 .qpage-block {
-    text-align: justify;
     direction: rtl;
+    text-align: justify;
     margin: 1em 0;
     padding: 0.8em 1em;
     background: #f7f4ef;
@@ -100,6 +105,93 @@ sup.fn-ref a { color: #0055aa; text-decoration: none; border-bottom: 1px dotted 
 .footnote-item { margin: 0.5em 0; padding-right: 0.3em; border-right: 2px solid #ddd; }
 .footnote-back { color: #0055aa; text-decoration: none; font-size: 0.85em; margin-right: 0.4em; }
 """
+
+
+# ══════════════════════════════════════════════
+# ملف القرآن
+# ══════════════════════════════════════════════
+
+def load_quran_file():
+    if _quran_db:
+        return
+    if not os.path.exists(QURAN_FILE):
+        raise SystemExit(f"❌ الملف غير موجود: {QURAN_FILE}")
+    with open(QURAN_FILE, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("|", 2)
+            if len(parts) != 3:
+                continue
+            s, a, text = int(parts[0]), int(parts[1]), parts[2]
+            _quran_db.setdefault(s, {})[a] = text
+    total = sum(len(v) for v in _quran_db.values())
+    print(f"  [QURAN ✔] {len(_quran_db)} سورة — {total} آية")
+
+def build_ayahs_html(surah_num: int, from_ayah: int, to_ayah: int) -> str:
+    surah = _quran_db.get(surah_num, {})
+    if not surah:
+        print(f"  [QURAN] سورة {surah_num} غير موجودة في الملف")
+        return ""
+
+    parts = []
+    if from_ayah == 1 and surah_num not in (1, 9):
+        parts.append('<span class="quran-basmala">بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ</span>')
+
+    found = 0
+    for n in range(from_ayah, to_ayah + 1):
+        text = surah.get(n)
+        if text:
+            parts.append(
+                f'<span class="quran-ayah">{text}</span>'
+                f'<span class="quran-marker">\uFD3F{n}\uFD3E</span>'
+            )
+            found += 1
+
+    if not found:
+        print(f"  [QURAN] لم تُعثر على آيات {from_ayah}-{to_ayah} في سورة {surah_num}")
+        return ""
+
+    return '<div class="qpage-block">' + " ".join(parts) + '</div>'
+
+def extract_quran_block(html, surah_num: int) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    if not soup.find("div", id="qpage"):
+        return ""
+    og = soup.find("meta", property="og:title")
+    if not og:
+        print(f"  [QURAN] لا يوجد og:title")
+        return ""
+    content = og.get("content", "")
+    m = _AYAH_RANGE_RE.search(content)
+    if not m:
+        print(f"  [QURAN] لم يُطابق الـ regex: {content}")
+        return ""
+    from_ayah = int(m.group(1))
+    to_ayah   = int(m.group(2)) if m.group(2) else from_ayah
+    print(f"  [QURAN] سورة {surah_num} آيات {from_ayah}-{to_ayah}")
+    return build_ayahs_html(surah_num, from_ayah, to_ayah)
+
+
+# ══════════════════════════════════════════════
+# خط Amiri Quran
+# ══════════════════════════════════════════════
+
+def fetch_amiri_font():
+    global _amiri_font_bytes
+    if _amiri_font_bytes is not None:
+        return _amiri_font_bytes
+    try:
+        r = requests.get(AMIRI_QURAN_URL, timeout=30)
+        if r.status_code == 200:
+            _amiri_font_bytes = r.content
+            print(f"  [FONT ✔] Amiri Quran — {len(r.content)//1024} KB")
+            return _amiri_font_bytes
+        print(f"  [FONT ERR] Amiri Quran — {r.status_code}")
+    except Exception as e:
+        print(f"  [FONT ERR] Amiri Quran — {e}")
+    return None
 
 
 # ══════════════════════════════════════════════
@@ -185,84 +277,6 @@ def get_page_title(html):
 
 
 # ══════════════════════════════════════════════
-# خط Amiri Quran
-# ══════════════════════════════════════════════
-
-AMIRI_QURAN_URL = (
-    "https://github.com/aliftype/amiri/raw/main/AmiriQuran.ttf"
-)
-
-def fetch_amiri_font() -> bytes | None:
-    global _amiri_font_bytes
-    if _amiri_font_bytes is not None:
-        return _amiri_font_bytes
-    try:
-        r = requests.get(AMIRI_QURAN_URL, timeout=30)
-        if r.status_code == 200:
-            _amiri_font_bytes = r.content
-            print(f"  [FONT] Amiri Quran — {len(r.content)//1024} KB")
-            return _amiri_font_bytes
-        print(f"  [FONT ERR] Amiri Quran — {r.status_code}")
-    except Exception as e:
-        print(f"  [FONT ERR] Amiri Quran — {e}")
-    return None
-
-
-# ══════════════════════════════════════════════
-# نص القرآن من API
-# ══════════════════════════════════════════════
-
-def fetch_surah_ayahs(surah_num: int) -> list:
-    """يجلب آيات السورة كاملةً ويُخزّنها — طلب واحد لكل سورة."""
-    if surah_num in _quran_surah_cache:
-        return _quran_surah_cache[surah_num]
-    url = f"https://api.alquran.cloud/v1/surah/{surah_num}/quran-uthmani"
-    try:
-        r = requests.get(url, timeout=20)
-        if r.status_code == 200:
-            ayahs = r.json().get("data", {}).get("ayahs", [])
-            _quran_surah_cache[surah_num] = ayahs
-            print(f"  [API] سورة {surah_num} — {len(ayahs)} آية")
-            time.sleep(0.3)
-            return ayahs
-        print(f"  [API ERR] سورة {surah_num} — {r.status_code}")
-    except Exception as e:
-        print(f"  [API ERR] سورة {surah_num} — {e}")
-    return []
-
-def build_ayahs_html(surah_num: int, from_ayah: int, to_ayah: int) -> str:
-    """يبني HTML للآيات من from_ayah إلى to_ayah بخط KFGQPC."""
-    ayahs = fetch_surah_ayahs(surah_num)
-    if not ayahs:
-        return ""
-
-    selected = [a for a in ayahs if from_ayah <= a.get("numberInSurah", 0) <= to_ayah]
-    if not selected:
-        return ""
-
-    parts = []
-    # البسملة قبل أول آية من السورة (عدا الفاتحة — بسملتها جزء منها — والتوبة)
-    if from_ayah == 1 and surah_num not in (1, 9):
-        parts.append(
-            '<span class="quran-basmala">بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ</span>'
-        )
-
-    for a in selected:
-        n    = a.get("numberInSurah", "")
-        text = a.get("text", "")
-        parts.append(
-            f'<span class="quran-ayah">{text}</span>'
-            f'<span class="quran-marker">\uFD3F{n}\uFD3E</span>'
-        )
-
-    return (
-        '<div class="qpage-block">'
-        + " ".join(parts) +
-        '</div>'
-    )
-
-
-# ══════════════════════════════════════════════
 # استخراج المحتوى
 # ══════════════════════════════════════════════
 
@@ -288,31 +302,6 @@ def get_tip_text(tip):
     convert_inner_soup(tip)
     result = re.sub(r'\s+', ' ', tip.get_text(strip=True)).strip()
     return _marker.sub('', result).strip()
-
-def extract_quran_block(html, surah_num: int) -> str:
-    """
-    يستخرج نطاق الآيات من og:title ثم يجلبها من API.
-    يُعيد HTML جاهزاً أو "" إن لم يجد.
-    """
-    soup = BeautifulSoup(html, "html.parser")
-
-    # تحقق من وجود div#qpage أصلاً
-    if not soup.find("div", id="qpage"):
-        return ""
-
-    og = soup.find("meta", property="og:title")
-    if not og:
-        return ""
-
-    m = _AYAH_RANGE_RE.search(og.get("content", ""))
-    if not m:
-        return ""
-
-    from_ayah = int(m.group(1))
-    to_ayah   = int(m.group(2)) if m.group(2) else from_ayah
-
-    print(f"  [QURAN] سورة {surah_num} آيات {from_ayah}-{to_ayah}")
-    return build_ayahs_html(surah_num, from_ayah, to_ayah)
 
 def extract_content(html):
     soup = BeautifulSoup(html, "html.parser")
@@ -404,14 +393,11 @@ def extract_content(html):
         if text:
             all_html.append(text)
 
-    return {
-        "text_html": "\n".join(all_html),
-        "footnotes": footnotes,
-    }
+    return {"text_html": "\n".join(all_html), "footnotes": footnotes}
 
 
 # ══════════════════════════════════════════════
-# بناء HTML صفحة واحدة
+# بناء HTML صفحة
 # ══════════════════════════════════════════════
 
 def build_page_html(title, source_url, parsed):
@@ -437,7 +423,7 @@ def build_page_html(title, source_url, parsed):
         for (fid, body) in footnotes:
             parts.append(
                 f'<p class="footnote-item" id="fn{fid}">'
-                f'<strong>[{fid}]</strong> {body}'
+                f'<strong>[{fid}]</strong> {body} '
                 f'<a class="footnote-back" href="#fnref{fid}" title="رجوع">↩</a>'
                 f'</p>'
             )
@@ -445,7 +431,7 @@ def build_page_html(title, source_url, parsed):
 
     return "\n".join(parts)
 
-def wrap_xhtml(title, body_html, extra_css=""):
+def wrap_xhtml(title, body_html):
     return (
         '<?xml version="1.0" encoding="utf-8"?>'
         '<!DOCTYPE html>'
@@ -454,7 +440,6 @@ def wrap_xhtml(title, body_html, extra_css=""):
         f'<title>{title}</title>'
         '<meta charset="utf-8"/>'
         '<link rel="stylesheet" href="../style/main.css" type="text/css"/>'
-        + extra_css +
         '</head>'
         f'<body>{body_html}</body>'
         '</html>'
@@ -480,21 +465,18 @@ def save_epub(book_data, session):
     )
     book.add_item(css)
 
-    # ── تضمين خط Amiri Quran
+    # تضمين خط Amiri Quran
     amiri_bytes = fetch_amiri_font()
     if amiri_bytes:
         book.add_item(epub.EpubItem(
-            uid        = "font_amiri_quran",
-            file_name  = "fonts/AmiriQuran.ttf",
-            media_type = "font/truetype",
-            content    = amiri_bytes,
+            uid="font_amiri_quran",
+            file_name="fonts/AmiriQuran.ttf",
+            media_type="font/truetype",
+            content=amiri_bytes,
         ))
         print("  [FONT ✔] Amiri Quran مضمّن في EPUB")
     else:
-        print("  [FONT ⚠] تعذّر تضمين Amiri Quran — سيستخدم القارئ خطه الافتراضي")
-
-    qcf_css        = None
-    extra_css_link = ""
+        print("  [FONT ⚠] تعذّر تضمين Amiri Quran")
 
     spine = ["nav"]
     toc   = []
@@ -515,10 +497,8 @@ def save_epub(book_data, session):
             file_name=f"s{snum:03d}_intro.xhtml",
             lang="ar", direction="rtl",
         )
-        intro_item.content = wrap_xhtml(f"{stitle} — تعريف", intro_html, extra_css_link)
+        intro_item.content = wrap_xhtml(f"{stitle} — تعريف", intro_html)
         intro_item.add_item(css)
-        if qcf_css:
-            intro_item.add_item(qcf_css)
         book.add_item(intro_item)
         spine.append(intro_item)
         surah_items.append(intro_item)
@@ -531,10 +511,8 @@ def save_epub(book_data, session):
                 file_name=f"s{snum:03d}_sec{i:03d}.xhtml",
                 lang="ar", direction="rtl",
             )
-            item.content = wrap_xhtml(sec["title"], sec_html, extra_css_link)
+            item.content = wrap_xhtml(sec["title"], sec_html)
             item.add_item(css)
-            if qcf_css:
-                item.add_item(qcf_css)
             book.add_item(item)
             spine.append(item)
             surah_items.append(item)
@@ -564,7 +542,7 @@ if __name__ == "__main__":
 
         session = make_session()
 
-        print("① تهيئة الجلسة...")
+        print("\n① تهيئة الجلسة...")
         get_page(session, INDEX, referer=BASE)
         time.sleep(1.5)
 
@@ -601,10 +579,10 @@ if __name__ == "__main__":
             first_url            = get_first_section_link(html_surah, snum)
             print(f"  تعريف: {len(intro['text_html'])} حرف")
 
-            sections        = []
-            next_url        = first_url
-            visited         = set()
-            sec_idx         = 1
+            sections = []
+            next_url = first_url
+            visited  = set()
+            sec_idx  = 1
 
             while next_url and next_url not in visited:
                 visited.add(next_url)
