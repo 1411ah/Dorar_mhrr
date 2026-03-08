@@ -26,14 +26,6 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4 ebooklib lxml
 
-      - name: Download Quran data
-        run: |
-          git clone --depth=1 --filter=blob:none --sparse \
-            https://github.com/thetruetruth/quran-data-kfgqpc.git quran_data
-          cd quran_data
-          git sparse-checkout set hafs-smart
-          cd ..
-
       - name: Run scraper
         env:
           TEST_SURAHS: ${{ github.event.inputs.test_surahs || 'None' }}
