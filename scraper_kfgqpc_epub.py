@@ -9,9 +9,11 @@ DELAY      = 1.0
 OUT_DIR    = "dorar_tafseer_epub"
 EPUB_FILE  = os.path.join(OUT_DIR, "موسوعة_التفسير_بالخط_العثماني.epub")
 
-KFGQPC_BASE = "https://raw.githubusercontent.com/thetruetruth/quran-data-kfgqpc/main"
-FONT_URL    = f"{KFGQPC_BASE}/hafs-smart/font/hafssmart.8.ttf"
-SURAH_JSON  = f"{KFGQPC_BASE}/lib/hafssmart/surahjson/{{n}}.json"
+KFGQPC_BASE      = "https://cdn.jsdelivr.net/gh/thetruetruth/quran-data-kfgqpc@main"
+QURAN_JSON_URL   = f"{KFGQPC_BASE}/hafs-smart/hafs_smart_v8.json"
+FONT_URL         = f"{KFGQPC_BASE}/hafs-smart/font/hafssmart.8.ttf"
+QURAN_JSON_LOCAL = os.path.join("quran_data", "hafs-smart", "hafs_smart_v8.json")
+FONT_LOCAL       = os.path.join("quran_data", "hafs-smart", "font", "hafssmart.8.ttf")
 
 TEST_SURAHS = None if os.environ.get("TEST_SURAHS") == "None" else (
     int(os.environ["TEST_SURAHS"]) if os.environ.get("TEST_SURAHS") else None
@@ -54,7 +56,7 @@ p { margin: 0.6em 0; }
 hr { border: none; border-top: 1px solid #ccc; margin: 1.5em 0; }
 
 .quran {
-    font-family: "hafssmart8", "KFGQPC Uthmanic Script HAFS", serif;
+    font-family: "Scheherazade New", "Traditional Arabic", "Amiri", serif;
     color: #1a4a1a;
 }
 
@@ -98,38 +100,62 @@ sup.fn-ref a { color: #0055aa; text-decoration: none; border-bottom: 1px dotted 
 
 
 # ══════════════════════════════════════════════
-# نصوص القرآن من CDN
+# نصوص القرآن
 # ══════════════════════════════════════════════
 
-def _parse_surah_json(data) -> dict[int, str]:
-    verses = data.get("verses") if isinstance(data, dict) else None
-    if not verses:
-        return {}
-    return {i + 1: v["text"] for i, v in enumerate(verses) if v.get("text")}
+def _load_quran_cache():
+    """يحمّل hafs_smart_v8.json مرة واحدة ويبني _surah_cache."""
+    if _surah_cache:
+        return
+
+    data = None
+
+    # أولاً: ملف محلي (من git clone في الـ workflow)
+    if os.path.exists(QURAN_JSON_LOCAL):
+        try:
+            with open(QURAN_JSON_LOCAL, encoding="utf-8") as f:
+                data = json.load(f)
+            print(f"  [QURAN ✔] محلي — {len(data)} سجل")
+        except Exception as e:
+            print(f"  [QURAN ERR] محلي — {e}")
+
+    # احتياطي: CDN
+    if data is None:
+        try:
+            r = requests.get(QURAN_JSON_URL, timeout=60)
+            if r.status_code == 200:
+                data = r.json()
+                print(f"  [QURAN ✔] CDN — {len(data)} سجل")
+            else:
+                print(f"  [QURAN ERR] CDN HTTP {r.status_code}")
+        except Exception as e:
+            print(f"  [QURAN ERR] CDN — {e}")
+
+    if not data:
+        print("  [QURAN ERR] فشل تحميل بيانات القرآن")
+        return
+
+    for item in data:
+        sura = int(item["sura_no"])
+        aya  = int(item["aya_no"])
+        text = item.get("aya_text", "").strip()
+        if text:
+            _surah_cache.setdefault(sura, {})[aya] = text
+
+    total = sum(len(v) for v in _surah_cache.values())
+    print(f"  [QURAN ✔] {len(_surah_cache)} سورة — {total} آية في الكاش")
 
 
 def fetch_surah(surah_num: int) -> dict[int, str]:
-    if surah_num in _surah_cache:
-        return _surah_cache[surah_num]
-    url = SURAH_JSON.format(n=surah_num)
-    try:
-        r = requests.get(url, timeout=15)
-        if r.status_code != 200:
-            print(f"  [QURAN ERR] HTTP {r.status_code} — {url}")
-            return {}
-        verses = _parse_surah_json(r.json())
-        if not verses:
-            print(f"  [QURAN WARN] سورة {surah_num}: لم يُستخرج أي نص")
-        _surah_cache[surah_num] = verses
-        return verses
-    except Exception as e:
-        print(f"  [QURAN ERR] سورة {surah_num} — {e}")
-        return {}
+    if not _surah_cache:
+        _load_quran_cache()
+    return _surah_cache.get(surah_num, {})
 
 
 def build_ayahs_html(surah_num: int, from_ayah: int, to_ayah: int) -> str:
     surah = fetch_surah(surah_num)
     if not surah:
+        print(f"  [QURAN] سورة {surah_num} غير موجودة في الكاش")
         return ""
 
     parts = []
@@ -155,7 +181,7 @@ def build_ayahs_html(surah_num: int, from_ayah: int, to_ayah: int) -> str:
 
 def extract_quran_block(html, surah_num: int) -> str:
     soup = BeautifulSoup(html, "html.parser")
-    og = soup.find("meta", property="og:title")
+    og   = soup.find("meta", property="og:title")
     if not og:
         return ""
     m = _AYAH_RANGE_RE.search(og.get("content", ""))
@@ -175,11 +201,21 @@ def fetch_kfgqpc_font() -> bytes | None:
     global _kfgqpc_font_bytes
     if _kfgqpc_font_bytes is not None:
         return _kfgqpc_font_bytes
+
+    if os.path.exists(FONT_LOCAL):
+        try:
+            with open(FONT_LOCAL, "rb") as f:
+                _kfgqpc_font_bytes = f.read()
+            print(f"  [FONT ✔] hafssmart محلي — {len(_kfgqpc_font_bytes)//1024} KB")
+            return _kfgqpc_font_bytes
+        except Exception as e:
+            print(f"  [FONT ERR] محلي — {e}")
+
     try:
         r = requests.get(FONT_URL, timeout=30)
         if r.status_code == 200:
             _kfgqpc_font_bytes = r.content
-            print(f"  [FONT ✔] hafssmart — {len(r.content)//1024} KB")
+            print(f"  [FONT ✔] hafssmart CDN — {len(r.content)//1024} KB")
             return _kfgqpc_font_bytes
         print(f"  [FONT ERR] {r.status_code}")
     except Exception as e:
@@ -521,6 +557,10 @@ def save_epub(book_data, session):
 if __name__ == "__main__":
     try:
         os.makedirs(OUT_DIR, exist_ok=True)
+
+        print("\n⓪ تحميل بيانات القرآن...")
+        _load_quran_cache()
+
         session = make_session()
 
         print("\n① تهيئة الجلسة...")
