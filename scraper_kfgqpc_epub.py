@@ -155,8 +155,6 @@ def build_ayahs_html(surah_num: int, from_ayah: int, to_ayah: int) -> str:
 
 def extract_quran_block(html, surah_num: int) -> str:
     soup = BeautifulSoup(html, "html.parser")
-    if not soup.find("div", id="qpage"):
-        return ""
     og = soup.find("meta", property="og:title")
     if not og:
         return ""
