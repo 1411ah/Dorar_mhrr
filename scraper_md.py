@@ -454,7 +454,7 @@ if __name__ == "__main__":
                 rng = extract_ayah_range(html_sec)
                 if rng:
                     from_a, to_a = rng
-                    ayahs_md = build_ayahs_html(snum, from_a, to_a)
+                    ayahs_md = build_ayahs_md(snum, from_a, to_a)
                     flag = f"  [آيات {from_a}-{to_a}]" if ayahs_md else "  [⚠ آيات لم تُجلب]"
                 else:
                     flag = ""
@@ -473,4 +473,4 @@ if __name__ == "__main__":
     except SystemExit as e:
         print(e)
     except Exception:
-        traceback.print_exc() 
+        traceback.print_exc()
