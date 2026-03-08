@@ -13,8 +13,13 @@ TEST_SURAHS = None if os.environ.get("TEST_SURAHS") == "None" else (
     int(os.environ["TEST_SURAHS"]) if os.environ.get("TEST_SURAHS") else None
 )
 
-_TIP_RE     = re.compile(r'\x01(\d+)\x01')
+_TIP_RE           = re.compile(r'\x01(\d+)\x01')
 _font_cache: dict[int, bytes] = {}
+_quran_surah_cache: dict[int, list] = {}   # surah_num → [ayahs]
+
+# يستخرج رقم السورة ونطاق الآيات من og:title
+# مثال: "سورة الفاتحة الآيات (1-7)" أو "سورة البقرة الآية (1)"
+_AYAH_RANGE_RE = re.compile(r'الآيات?\s*\((\d+)(?:-(\d+))?\)')
 
 
 ARABIC_CSS = """
@@ -52,9 +57,34 @@ hr { border: none; border-top: 1px solid #ccc; margin: 1.5em 0; }
     text-align: justify;
     direction: rtl;
     margin: 1em 0;
-    padding: 0.5em;
+    padding: 0.8em 1em;
     background: #f7f4ef;
     border-right: 3px solid #6a8a3a;
+    font-family: "KFGQPC Uthmanic Script HAFS", "Scheherazade New",
+                 "Amiri Quran", "Traditional Arabic", serif;
+    font-size: 1em;
+    line-height: 2.2;
+}
+
+.quran-ayah {
+    font-family: "KFGQPC Uthmanic Script HAFS", "Scheherazade New",
+                 "Amiri Quran", "Traditional Arabic", serif;
+}
+
+.quran-marker {
+    font-family: "KFGQPC Uthmanic Script HAFS", "Scheherazade New",
+                 "Amiri Quran", serif;
+    color: #6a8a3a;
+    font-size: 0.9em;
+}
+
+.quran-basmala {
+    display: block;
+    text-align: center;
+    font-family: "KFGQPC Uthmanic Script HAFS", "Scheherazade New",
+                 "Amiri Quran", serif;
+    margin: 0.5em 0;
+    color: #2a4a2a;
 }
 
 sup.fn-ref { font-size: 0.72em; line-height: 0; vertical-align: super; }
@@ -157,38 +187,57 @@ def get_page_title(html):
 
 
 # ══════════════════════════════════════════════
-# خطوط QCF
+# نص القرآن من API
 # ══════════════════════════════════════════════
 
-def fetch_qcf_font(session, page_num):
-    if page_num in _font_cache:
-        return _font_cache[page_num]
-    url = f"{BASE}/fonts/QCF_P{page_num}.TTF"
+def fetch_surah_ayahs(surah_num: int) -> list:
+    """يجلب آيات السورة كاملةً ويُخزّنها — طلب واحد لكل سورة."""
+    if surah_num in _quran_surah_cache:
+        return _quran_surah_cache[surah_num]
+    url = f"https://api.alquran.cloud/v1/surah/{surah_num}/quran-uthmani"
     try:
-        r = session.get(url, timeout=20)
+        r = requests.get(url, timeout=20)
         if r.status_code == 200:
-            _font_cache[page_num] = r.content
-            print(f"  [FONT] خط الصفحة {page_num}")
-            return r.content
+            ayahs = r.json().get("data", {}).get("ayahs", [])
+            _quran_surah_cache[surah_num] = ayahs
+            print(f"  [API] سورة {surah_num} — {len(ayahs)} آية")
+            time.sleep(0.3)
+            return ayahs
+        print(f"  [API ERR] سورة {surah_num} — {r.status_code}")
     except Exception as e:
-        print(f"  [FONT ERR] {url} — {e}")
-    return None
+        print(f"  [API ERR] سورة {surah_num} — {e}")
+    return []
 
-def build_qcf_css(font_pages: set) -> str:
-    lines = []
-    for pnum in sorted(font_pages):
-        lines.append(
-            f'@font-face {{\n'
-            f'  font-family: "QCF_P{pnum}";\n'
-            f'  src: url("../fonts/QCF_P{pnum}.ttf") format("truetype");\n'
-            f'}}\n'
-            f'.qcf-pg{pnum} {{\n'
-            f'  font-family: "QCF_P{pnum}", "Amiri Quran", serif;\n'
-            f'  font-size: 1em;\n'
-            f'  line-height: 2.2;\n'
-            f'}}'
+def build_ayahs_html(surah_num: int, from_ayah: int, to_ayah: int) -> str:
+    """يبني HTML للآيات من from_ayah إلى to_ayah بخط KFGQPC."""
+    ayahs = fetch_surah_ayahs(surah_num)
+    if not ayahs:
+        return ""
+
+    selected = [a for a in ayahs if from_ayah <= a.get("numberInSurah", 0) <= to_ayah]
+    if not selected:
+        return ""
+
+    parts = []
+    # البسملة قبل أول آية من السورة (عدا الفاتحة — بسملتها جزء منها — والتوبة)
+    if from_ayah == 1 and surah_num not in (1, 9):
+        parts.append(
+            '<span class="quran-basmala">بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ</span>'
         )
-    return "\n\n".join(lines)
+
+    for a in selected:
+        n    = a.get("numberInSurah", "")
+        text = a.get("text", "")
+        parts.append(
+            f'<span class="quran-ayah">{text}</span>'
+            f'<span class="quran-marker">\uFD3F{n}\uFD3E</span>'
+        )
+
+    return (
+        '<div class="qpage-block">'
+        + " ".join(parts) +
+        '</div>'
+    )
 
 
 # ══════════════════════════════════════════════
@@ -218,25 +267,30 @@ def get_tip_text(tip):
     result = re.sub(r'\s+', ' ', tip.get_text(strip=True)).strip()
     return _marker.sub('', result).strip()
 
-def extract_quran_block(html):
-    soup  = BeautifulSoup(html, "html.parser")
-    qpage = soup.find("div", id="qpage")
-    if not qpage:
-        return "", set()
-    font_pages = set()
-    for span in qpage.find_all("span"):
-        sid = span.get("id", "")
-        m   = re.match(r"pg(\d+)$", sid)
-        if m:
-            pnum = int(m.group(1))
-            font_pages.add(pnum)
-            span["class"] = f"qcf-pg{pnum}"
-            del span["id"]
-    qpage["class"] = "qpage-block"
-    for attr in ("style", "id"):
-        if attr in qpage.attrs:
-            del qpage[attr]
-    return str(qpage), font_pages
+def extract_quran_block(html, surah_num: int) -> str:
+    """
+    يستخرج نطاق الآيات من og:title ثم يجلبها من API.
+    يُعيد HTML جاهزاً أو "" إن لم يجد.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    # تحقق من وجود div#qpage أصلاً
+    if not soup.find("div", id="qpage"):
+        return ""
+
+    og = soup.find("meta", property="og:title")
+    if not og:
+        return ""
+
+    m = _AYAH_RANGE_RE.search(og.get("content", ""))
+    if not m:
+        return ""
+
+    from_ayah = int(m.group(1))
+    to_ayah   = int(m.group(2)) if m.group(2) else from_ayah
+
+    print(f"  [QURAN] سورة {surah_num} آيات {from_ayah}-{to_ayah}")
+    return build_ayahs_html(surah_num, from_ayah, to_ayah)
 
 def extract_content(html):
     soup = BeautifulSoup(html, "html.parser")
@@ -404,31 +458,9 @@ def save_epub(book_data, session):
     )
     book.add_item(css)
 
-    # ── خطوط QCF
-    all_font_pages: set = set()
-    for entry in book_data:
-        all_font_pages |= entry.get("font_pages", set())
-
-    for pnum in sorted(all_font_pages):
-        font_bytes = fetch_qcf_font(session, pnum)
-        if font_bytes:
-            book.add_item(epub.EpubItem(
-                uid        = f"font_qcf_{pnum}",
-                file_name  = f"fonts/QCF_P{pnum}.ttf",
-                media_type = "font/truetype",
-                content    = font_bytes,
-            ))
-
-    qcf_css = None
-    if all_font_pages:
-        qcf_css = epub.EpubItem(
-            uid="style_qcf", file_name="style/qcf.css",
-            media_type="text/css",
-            content=build_qcf_css(all_font_pages).encode("utf-8"),
-        )
-        book.add_item(qcf_css)
-
-    extra_css_link = '<link rel="stylesheet" href="../style/qcf.css" type="text/css"/>' if qcf_css else ""
+    # ── لا خطوط QCF — النص يعتمد على KFGQPC المثبت على الجهاز
+    qcf_css      = None
+    extra_css_link = ""
 
     spine = ["nav"]
     toc   = []
@@ -532,7 +564,6 @@ if __name__ == "__main__":
             print(f"  تعريف: {len(intro['text_html'])} حرف")
 
             sections        = []
-            all_font_pages  = set()
             next_url        = first_url
             visited         = set()
             sec_idx         = 1
@@ -545,16 +576,15 @@ if __name__ == "__main__":
                     break
                 title           = get_page_title(html_sec)
                 parsed          = extract_content(html_sec)
-                qblock, fpages  = extract_quran_block(html_sec)
+                qblock          = extract_quran_block(html_sec, snum)
                 parsed["quran_block"] = qblock
-                all_font_pages |= fpages
                 print(f"    [{sec_idx}] {title[:50]}  →  {len(parsed['text_html'])} حرف"
-                      + (f"  [{len(fpages)} خط]" if fpages else ""))
+                      + ("  [✔ آيات]" if qblock else ""))
                 sections.append({"url": next_url, "title": title, **parsed})
                 next_url = get_next_link(html_sec)
                 sec_idx += 1
 
-            print(f"  → {len(sections)} مقطع  |  {len(all_font_pages)} خط QCF")
+            print(f"  → {len(sections)} مقطع")
 
             book_data.append({
                 "surah_num"  : snum,
@@ -562,7 +592,6 @@ if __name__ == "__main__":
                 "surah_url"  : surl,
                 "intro"      : intro,
                 "sections"   : sections,
-                "font_pages" : all_font_pages,
             })
 
         print("\n④ بناء EPUB...")
