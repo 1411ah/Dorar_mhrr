@@ -13,17 +13,16 @@ TEST_SURAHS = None if os.environ.get("TEST_SURAHS") == "None" else (
     int(os.environ["TEST_SURAHS"]) if os.environ.get("TEST_SURAHS") else None
 )
 
-_TIP_RE           = re.compile(r'\x01(\d+)\x01')
-_font_cache: dict[int, bytes] = {}
-_quran_surah_cache: dict[int, list] = {}   # surah_num → [ayahs]
-
-# يستخرج رقم السورة ونطاق الآيات من og:title
-# مثال: "سورة الفاتحة الآيات (1-7)" أو "سورة البقرة الآية (1)"
-_AYAH_RANGE_RE = re.compile(r'الآيات?\s*\((\d+)(?:-(\d+))?\)')
+_TIP_RE            = re.compile(r'\x01(\d+)\x01')
+_amiri_font_bytes: bytes | None = None
+_AYAH_RANGE_RE     = re.compile(r'الآيات?\s*\((\d+)(?:-(\d+))?\)')
 
 
 ARABIC_CSS = """
-@charset "UTF-8";
+@font-face {
+    font-family: "AmiriQuran";
+    src: url("../fonts/AmiriQuran.ttf") format("truetype");
+}
 
 body {
     direction: rtl;
@@ -60,20 +59,19 @@ hr { border: none; border-top: 1px solid #ccc; margin: 1.5em 0; }
     padding: 0.8em 1em;
     background: #f7f4ef;
     border-right: 3px solid #6a8a3a;
-    font-family: "KFGQPC Uthmanic Script HAFS", "Scheherazade New",
-                 "Amiri Quran", "Traditional Arabic", serif;
+    font-family: "AmiriQuran", "Amiri Quran", "KFGQPC Uthmanic Script HAFS",
+                 "Scheherazade New", "Traditional Arabic", serif;
     font-size: 1em;
     line-height: 2.2;
 }
 
 .quran-ayah {
-    font-family: "KFGQPC Uthmanic Script HAFS", "Scheherazade New",
-                 "Amiri Quran", "Traditional Arabic", serif;
+    font-family: "AmiriQuran", "Amiri Quran", "KFGQPC Uthmanic Script HAFS",
+                 "Scheherazade New", "Traditional Arabic", serif;
 }
 
 .quran-marker {
-    font-family: "KFGQPC Uthmanic Script HAFS", "Scheherazade New",
-                 "Amiri Quran", serif;
+    font-family: "AmiriQuran", "Amiri Quran", "Scheherazade New", serif;
     color: #6a8a3a;
     font-size: 0.9em;
 }
@@ -81,8 +79,8 @@ hr { border: none; border-top: 1px solid #ccc; margin: 1.5em 0; }
 .quran-basmala {
     display: block;
     text-align: center;
-    font-family: "KFGQPC Uthmanic Script HAFS", "Scheherazade New",
-                 "Amiri Quran", serif;
+    font-family: "AmiriQuran", "Amiri Quran", "KFGQPC Uthmanic Script HAFS",
+                 "Scheherazade New", serif;
     margin: 0.5em 0;
     color: #2a4a2a;
 }
@@ -184,6 +182,30 @@ def get_page_title(html):
     if t:
         return t.get_text().split(" - ")[-1].strip()
     return ""
+
+
+# ══════════════════════════════════════════════
+# خط Amiri Quran
+# ══════════════════════════════════════════════
+
+AMIRI_QURAN_URL = (
+    "https://github.com/aliftype/amiri/raw/main/AmiriQuran.ttf"
+)
+
+def fetch_amiri_font() -> bytes | None:
+    global _amiri_font_bytes
+    if _amiri_font_bytes is not None:
+        return _amiri_font_bytes
+    try:
+        r = requests.get(AMIRI_QURAN_URL, timeout=30)
+        if r.status_code == 200:
+            _amiri_font_bytes = r.content
+            print(f"  [FONT] Amiri Quran — {len(r.content)//1024} KB")
+            return _amiri_font_bytes
+        print(f"  [FONT ERR] Amiri Quran — {r.status_code}")
+    except Exception as e:
+        print(f"  [FONT ERR] Amiri Quran — {e}")
+    return None
 
 
 # ══════════════════════════════════════════════
@@ -458,8 +480,20 @@ def save_epub(book_data, session):
     )
     book.add_item(css)
 
-    # ── لا خطوط QCF — النص يعتمد على KFGQPC المثبت على الجهاز
-    qcf_css      = None
+    # ── تضمين خط Amiri Quran
+    amiri_bytes = fetch_amiri_font()
+    if amiri_bytes:
+        book.add_item(epub.EpubItem(
+            uid        = "font_amiri_quran",
+            file_name  = "fonts/AmiriQuran.ttf",
+            media_type = "font/truetype",
+            content    = amiri_bytes,
+        ))
+        print("  [FONT ✔] Amiri Quran مضمّن في EPUB")
+    else:
+        print("  [FONT ⚠] تعذّر تضمين Amiri Quran — سيستخدم القارئ خطه الافتراضي")
+
+    qcf_css        = None
     extra_css_link = ""
 
     spine = ["nav"]
@@ -524,6 +558,10 @@ def save_epub(book_data, session):
 if __name__ == "__main__":
     try:
         os.makedirs(OUT_DIR, exist_ok=True)
+
+        print("⓪ تحميل ملف القرآن...")
+        load_quran_file()
+
         session = make_session()
 
         print("① تهيئة الجلسة...")
