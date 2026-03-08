@@ -9,7 +9,7 @@ DELAY      = 1.0
 OUT_DIR    = "dorar_tafseer_epub"
 EPUB_FILE  = os.path.join(OUT_DIR, "موسوعة_التفسير_بالخط_العثماني.epub")
 
-KFGQPC_BASE = "https://cdn.jsdelivr.net/gh/thetruetruth/quran-data-kfgqpc@main"
+KFGQPC_BASE = "https://raw.githubusercontent.com/thetruetruth/quran-data-kfgqpc/main"
 FONT_URL    = f"{KFGQPC_BASE}/hafs-smart/font/hafssmart.8.ttf"
 SURAH_JSON  = f"{KFGQPC_BASE}/lib/hafssmart/surahjson/{{n}}.json"
 
