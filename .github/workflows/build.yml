@@ -1,4 +1,4 @@
-name: Build Tafseer EPUB
+name: بناء موسوعة التفسير
 
 on:
   push:
