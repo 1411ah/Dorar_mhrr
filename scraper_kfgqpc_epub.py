@@ -8,12 +8,22 @@ INDEX      = "https://dorar.net/tafseer"
 DELAY      = 1.0
 OUT_DIR    = "dorar_tafseer_epub"
 EPUB_FILE  = os.path.join(OUT_DIR, "موسوعة_التفسير_بالخط_العثماني.epub")
+MD_DIR     = os.path.join(OUT_DIR, "md")
 
 KFGQPC_BASE      = "https://cdn.jsdelivr.net/gh/thetruetruth/quran-data-kfgqpc@main"
 QURAN_JSON_URL   = f"{KFGQPC_BASE}/hafs-smart/hafs_smart_v8.json"
 FONT_URL         = f"{KFGQPC_BASE}/hafs-smart/font/hafssmart.8.ttf"
 QURAN_JSON_LOCAL = "hafs_smart_v8.json"
 FONT_LOCAL       = "hafssmart.8.ttf"
+
+# صفحات المقدمة والمراجع
+FRONT_PAGES = [
+    {"url": f"{BASE}/article/1955", "title": "منهج العمل في الموسوعة", "slug": "front_manhaj"},
+    {"url": f"{BASE}/article/1984", "title": "مقدمة الموسوعة",         "slug": "front_intro"},
+]
+BACK_PAGES = [
+    {"url": f"{BASE}/refs/tafseer", "title": "مراجع الموسوعة",         "slug": "back_refs"},
+]
 
 TEST_SURAHS = None if os.environ.get("TEST_SURAHS") == "None" else (
     int(os.environ["TEST_SURAHS"]) if os.environ.get("TEST_SURAHS") else None
@@ -22,7 +32,7 @@ TEST_SURAHS = None if os.environ.get("TEST_SURAHS") == "None" else (
 _TIP_RE        = re.compile(r'\x01(\d+)\x01')
 _AYAH_RANGE_RE = re.compile(r'الآيات?\s*\((\d+)(?:-(\d+))?\)')
 
-_surah_cache:      dict[int, dict[int, str]] = {}
+_surah_cache:       dict[int, dict[int, str]] = {}
 _kfgqpc_font_bytes = None
 
 ARABIC_CSS = """
@@ -104,13 +114,9 @@ sup.fn-ref a { color: #0055aa; text-decoration: none; border-bottom: 1px dotted 
 # ══════════════════════════════════════════════
 
 def _load_quran_cache():
-    """يحمّل hafs_smart_v8.json مرة واحدة ويبني _surah_cache."""
     if _surah_cache:
         return
-
     data = None
-
-    # أولاً: ملف محلي (من git clone في الـ workflow)
     if os.path.exists(QURAN_JSON_LOCAL):
         try:
             with open(QURAN_JSON_LOCAL, encoding="utf-8") as f:
@@ -118,8 +124,6 @@ def _load_quran_cache():
             print(f"  [QURAN ✔] محلي — {len(data)} سجل")
         except Exception as e:
             print(f"  [QURAN ERR] محلي — {e}")
-
-    # احتياطي: CDN
     if data is None:
         try:
             r = requests.get(QURAN_JSON_URL, timeout=60)
@@ -130,20 +134,17 @@ def _load_quran_cache():
                 print(f"  [QURAN ERR] CDN HTTP {r.status_code}")
         except Exception as e:
             print(f"  [QURAN ERR] CDN — {e}")
-
     if not data:
         print("  [QURAN ERR] فشل تحميل بيانات القرآن")
         return
-
     for item in data:
         sura = int(item["sura_no"])
         aya  = int(item["aya_no"])
         text = item.get("aya_text", "").strip()
         if text:
             _surah_cache.setdefault(sura, {})[aya] = text
-
     total = sum(len(v) for v in _surah_cache.values())
-    print(f"  [QURAN ✔] {len(_surah_cache)} سورة — {total} آية في الكاش")
+    print(f"  [QURAN ✔] {len(_surah_cache)} سورة — {total} آية")
 
 
 def fetch_surah(surah_num: int) -> dict[int, str]:
@@ -155,13 +156,10 @@ def fetch_surah(surah_num: int) -> dict[int, str]:
 def build_ayahs_html(surah_num: int, from_ayah: int, to_ayah: int) -> str:
     surah = fetch_surah(surah_num)
     if not surah:
-        print(f"  [QURAN] سورة {surah_num} غير موجودة في الكاش")
         return ""
-
     parts = []
     if from_ayah == 1 and surah_num not in (1, 9):
         parts.append('<span class="quran-basmala">بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ</span>')
-
     found = 0
     for n in range(from_ayah, to_ayah + 1):
         text = surah.get(n)
@@ -171,11 +169,9 @@ def build_ayahs_html(surah_num: int, from_ayah: int, to_ayah: int) -> str:
                 f'<span class="quran-marker">\uFD3F{n}\uFD3E</span>'
             )
             found += 1
-
     if not found:
         print(f"  [QURAN] لم تُعثر على آيات {from_ayah}-{to_ayah} في سورة {surah_num}")
         return ""
-
     return '<div class="qpage-block">' + " ".join(parts) + '</div>'
 
 
@@ -201,21 +197,19 @@ def fetch_kfgqpc_font() -> bytes | None:
     global _kfgqpc_font_bytes
     if _kfgqpc_font_bytes is not None:
         return _kfgqpc_font_bytes
-
     if os.path.exists(FONT_LOCAL):
         try:
             with open(FONT_LOCAL, "rb") as f:
                 _kfgqpc_font_bytes = f.read()
-            print(f"  [FONT ✔] hafssmart محلي — {len(_kfgqpc_font_bytes)//1024} KB")
+            print(f"  [FONT ✔] محلي — {len(_kfgqpc_font_bytes)//1024} KB")
             return _kfgqpc_font_bytes
         except Exception as e:
             print(f"  [FONT ERR] محلي — {e}")
-
     try:
         r = requests.get(FONT_URL, timeout=30)
         if r.status_code == 200:
             _kfgqpc_font_bytes = r.content
-            print(f"  [FONT ✔] hafssmart CDN — {len(r.content)//1024} KB")
+            print(f"  [FONT ✔] CDN — {len(r.content)//1024} KB")
             return _kfgqpc_font_bytes
         print(f"  [FONT ERR] {r.status_code}")
     except Exception as e:
@@ -334,7 +328,6 @@ def get_tip_text(tip):
 
 def extract_content(html):
     soup = BeautifulSoup(html, "html.parser")
-
     for tag in soup.find_all(["nav", "header", "footer", "script", "style", "form"]):
         tag.decompose()
     for pat in [
@@ -359,7 +352,6 @@ def extract_content(html):
                 if pane.find("article"):
                     block = pane
                     break
-
     if not block:
         block = soup.find("body") or soup
 
@@ -418,7 +410,6 @@ def extract_content(html):
         text = re.sub(r'(?<!\n)\n(?![\n])', ' ', text)
         text = re.sub(r'\n{2,}', '</p>\n<p>', text).strip()
         text = f"<p>{text}</p>" if text else ""
-
         if text:
             all_html.append(text)
 
@@ -426,23 +417,18 @@ def extract_content(html):
 
 
 # ══════════════════════════════════════════════
-# بناء HTML صفحة
+# بناء HTML وMarkdown
 # ══════════════════════════════════════════════
 
 def build_page_html(title, source_url, parsed):
-    parts = [
-        f'<h1>{title}</h1>',
-        f'<p class="source">{source_url}</p>',
-        '<hr/>',
-    ]
+    parts = [f'<h1>{title}</h1>', f'<p class="source">{source_url}</p>', '<hr/>']
     quran_block = parsed.get("quran_block", "")
     if quran_block:
         parts.append(quran_block)
         parts.append('<hr/>')
-    text_html = parsed.get("text_html", "")
+    if parsed.get("text_html"):
+        parts.append(parsed["text_html"])
     footnotes = parsed.get("footnotes", [])
-    if text_html:
-        parts.append(text_html)
     if footnotes:
         parts.append('<div class="footnotes"><h3>الحواشي</h3>')
         for (fid, body) in footnotes:
@@ -454,6 +440,33 @@ def build_page_html(title, source_url, parsed):
             )
         parts.append('</div>')
     return "\n".join(parts)
+
+
+def build_page_md(title, source_url, parsed):
+    lines = [f"# {title}", f"", f"> المصدر: {source_url}", ""]
+    quran_block = parsed.get("quran_block", "")
+    if quran_block:
+        # استخرج النص النظيف من الـ HTML
+        qs = BeautifulSoup(quran_block, "html.parser")
+        lines += ["---", "", qs.get_text(" ", strip=True), "", "---", ""]
+    text_html = parsed.get("text_html", "")
+    if text_html:
+        ts = BeautifulSoup(text_html, "html.parser")
+        lines.append(ts.get_text("\n", strip=True))
+    footnotes = parsed.get("footnotes", [])
+    if footnotes:
+        lines += ["", "---", "## الحواشي", ""]
+        for (fid, body) in footnotes:
+            lines.append(f"[{fid}] {body}")
+    return "\n".join(lines)
+
+
+def save_md(slug, content_md):
+    os.makedirs(MD_DIR, exist_ok=True)
+    path = os.path.join(MD_DIR, f"{slug}.md")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content_md)
+
 
 def wrap_xhtml(title, body_html):
     return (
@@ -474,7 +487,7 @@ def wrap_xhtml(title, body_html):
 # حفظ EPUB
 # ══════════════════════════════════════════════
 
-def save_epub(book_data, session):
+def save_epub(front_data, book_data, back_data, session):
     os.makedirs(OUT_DIR, exist_ok=True)
     book = epub.EpubBook()
     book.set_identifier("dorar-tafseer-001")
@@ -492,10 +505,8 @@ def save_epub(book_data, session):
     font_bytes = fetch_kfgqpc_font()
     if font_bytes:
         book.add_item(epub.EpubItem(
-            uid="font_hafssmart",
-            file_name="fonts/hafssmart.8.ttf",
-            media_type="font/truetype",
-            content=font_bytes,
+            uid="font_hafssmart", file_name="fonts/hafssmart.8.ttf",
+            media_type="font/truetype", content=font_bytes,
         ))
         print("  [FONT ✔] hafssmart مضمّن في EPUB")
     else:
@@ -504,19 +515,27 @@ def save_epub(book_data, session):
     spine = ["nav"]
     toc   = []
 
-    for entry in book_data:
-        snum     = entry["surah_num"]
-        stitle   = entry["surah_title"]
-        surl     = entry["surah_url"]
-        intro    = entry["intro"]
-        sections = entry["sections"]
+    # ── المقدمة ──
+    for pg in front_data:
+        html = build_page_html(pg["title"], pg["url"], pg["parsed"])
+        item = epub.EpubHtml(
+            title=pg["title"], file_name=f"{pg['slug']}.xhtml",
+            lang="ar", direction="rtl",
+        )
+        item.content = wrap_xhtml(pg["title"], html)
+        item.add_item(css)
+        book.add_item(item)
+        spine.append(item)
+        toc.append(epub.Link(item.file_name, pg["title"], item.file_name))
 
+    # ── السور ──
+    for entry in book_data:
+        snum, stitle, surl = entry["surah_num"], entry["surah_title"], entry["surah_url"]
         surah_items = []
 
-        intro_html = build_page_html(f"{stitle} — تعريف السورة", surl, intro)
+        intro_html = build_page_html(f"{stitle} — تعريف السورة", surl, entry["intro"])
         intro_item = epub.EpubHtml(
-            title=f"{stitle} — تعريف",
-            file_name=f"s{snum:03d}_intro.xhtml",
+            title=f"{stitle} — تعريف", file_name=f"s{snum:03d}_intro.xhtml",
             lang="ar", direction="rtl",
         )
         intro_item.content = wrap_xhtml(f"{stitle} — تعريف", intro_html)
@@ -525,11 +544,10 @@ def save_epub(book_data, session):
         spine.append(intro_item)
         surah_items.append(intro_item)
 
-        for i, sec in enumerate(sections, 1):
+        for i, sec in enumerate(entry["sections"], 1):
             sec_html = build_page_html(sec["title"], sec["url"], sec)
             item     = epub.EpubHtml(
-                title=sec["title"],
-                file_name=f"s{snum:03d}_sec{i:03d}.xhtml",
+                title=sec["title"], file_name=f"s{snum:03d}_sec{i:03d}.xhtml",
                 lang="ar", direction="rtl",
             )
             item.content = wrap_xhtml(sec["title"], sec_html)
@@ -541,11 +559,23 @@ def save_epub(book_data, session):
         sub_links = [epub.Link(p.file_name, p.title, p.file_name) for p in surah_items]
         toc.append((epub.Section(stitle, href=f"s{snum:03d}_intro.xhtml"), sub_links))
 
+    # ── المراجع ──
+    for pg in back_data:
+        html = build_page_html(pg["title"], pg["url"], pg["parsed"])
+        item = epub.EpubHtml(
+            title=pg["title"], file_name=f"{pg['slug']}.xhtml",
+            lang="ar", direction="rtl",
+        )
+        item.content = wrap_xhtml(pg["title"], html)
+        item.add_item(css)
+        book.add_item(item)
+        spine.append(item)
+        toc.append(epub.Link(item.file_name, pg["title"], item.file_name))
+
     book.toc   = toc
     book.spine = spine
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())
-
     epub.write_epub(EPUB_FILE, book)
     print(f"\n✔ EPUB محفوظ: {EPUB_FILE}")
 
@@ -557,6 +587,7 @@ def save_epub(book_data, session):
 if __name__ == "__main__":
     try:
         os.makedirs(OUT_DIR, exist_ok=True)
+        os.makedirs(MD_DIR,  exist_ok=True)
 
         print("\n⓪ تحميل بيانات القرآن...")
         _load_quran_cache()
@@ -567,14 +598,45 @@ if __name__ == "__main__":
         get_page(session, INDEX, referer=BASE)
         time.sleep(1.5)
 
-        print("\n② جلب الصفحة الرئيسية...")
+        # ── جلب صفحات المقدمة ──
+        print("\n② جلب صفحات المقدمة...")
+        front_data = []
+        for pg in FRONT_PAGES:
+            html = get_page(session, pg["url"], referer=BASE)
+            time.sleep(DELAY)
+            if not html:
+                print(f"  [SKIP] {pg['url']}")
+                continue
+            parsed = extract_content(html)
+            parsed["quran_block"] = ""
+            front_data.append({**pg, "parsed": parsed})
+            save_md(pg["slug"], build_page_md(pg["title"], pg["url"], parsed))
+            print(f"  ✔ {pg['title']} — {len(parsed['text_html'])} حرف")
+
+        # ── جلب صفحات المراجع ──
+        print("\n③ جلب صفحات المراجع...")
+        back_data = []
+        for pg in BACK_PAGES:
+            html = get_page(session, pg["url"], referer=BASE)
+            time.sleep(DELAY)
+            if not html:
+                print(f"  [SKIP] {pg['url']}")
+                continue
+            parsed = extract_content(html)
+            parsed["quran_block"] = ""
+            back_data.append({**pg, "parsed": parsed})
+            save_md(pg["slug"], build_page_md(pg["title"], pg["url"], parsed))
+            print(f"  ✔ {pg['title']} — {len(parsed['text_html'])} حرف")
+
+        # ── جلب الصفحة الرئيسية ──
+        print("\n④ جلب الصفحة الرئيسية...")
         html_main = get_page(session, INDEX, referer=BASE)
         time.sleep(2)
         if not html_main:
             raise SystemExit("فشل جلب الصفحة الرئيسية")
 
         surah_links = get_surah_links(html_main)
-        print(f"\n③ {len(surah_links)} سورة\n")
+        print(f"\n⑤ {len(surah_links)} سورة\n")
 
         if TEST_SURAHS:
             surah_links = surah_links[:TEST_SURAHS]
@@ -600,6 +662,10 @@ if __name__ == "__main__":
             first_url            = get_first_section_link(html_surah, snum)
             print(f"  تعريف: {len(intro['text_html'])} حرف")
 
+            # حفظ MD للتعريف
+            save_md(f"s{snum:03d}_intro",
+                    build_page_md(f"{stitle} — تعريف", surl, intro))
+
             sections = []
             next_url = first_url
             visited  = set()
@@ -618,21 +684,20 @@ if __name__ == "__main__":
                 print(f"    [{sec_idx}] {title[:50]}  →  {len(parsed['text_html'])} حرف"
                       + ("  [✔ آيات]" if qblock else ""))
                 sections.append({"url": next_url, "title": title, **parsed})
+                save_md(f"s{snum:03d}_sec{sec_idx:03d}",
+                        build_page_md(title, next_url, parsed))
                 next_url = get_next_link(html_sec)
                 sec_idx += 1
 
             print(f"  → {len(sections)} مقطع")
-
             book_data.append({
-                "surah_num"  : snum,
-                "surah_title": stitle,
-                "surah_url"  : surl,
-                "intro"      : intro,
-                "sections"   : sections,
+                "surah_num": snum, "surah_title": stitle,
+                "surah_url": surl, "intro": intro, "sections": sections,
             })
 
-        print("\n④ بناء EPUB...")
-        save_epub(book_data, session)
+        print("\n⑥ بناء EPUB...")
+        save_epub(front_data, book_data, back_data, session)
+        print(f"✔ ملفات MD محفوظة في: {MD_DIR}")
         print("\n✔ اكتمل.")
 
     except SystemExit as e:
