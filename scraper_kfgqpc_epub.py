@@ -518,11 +518,18 @@ def extract_article_content(html):
         parts = []
         for art in cntnt.find_all("article"):
             h = art.find("h5")
-            title = f"<h3>{h.get_text(strip=True)}</h3>" if h else ""
+            title = f"<strong>{h.get_text(strip=True)}</strong> — " if h else ""
             details = []
-            for div in art.find_all("div", class_="d-block"):
-                details.append(div.get_text(" ", strip=True))
-            parts.append(title + "<p>" + " | ".join(details) + "</p>")
+            for strong in art.find_all("strong"):
+                label = strong.get_text(strip=True).replace(":", "").strip()
+                val_span = strong.find("span", class_="primary-text-color")
+                if not val_span:
+                    val_span = strong.find("span")
+                val = val_span.get_text(strip=True) if val_span else ""
+                if label and val:
+                    details.append(f"{label}: {val}")
+            para = "، ".join(details) + "." if details else ""
+            parts.append(f"<p>{title}{para}</p>")
         return {"text_html": "\n".join(parts), "footnotes": [], "quran_block": ""}
 
     # صفحات المقالات: amiri_custom_content
