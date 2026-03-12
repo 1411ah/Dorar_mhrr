@@ -39,7 +39,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git pull --rebase
+          git fetch origin
+          git reset --soft origin/main
           git add dorar_tafseer_epub/
           git diff --cached --quiet || git commit -m "تحديث EPUB وملفات MD [skip ci]"
-          git push
+          git push --force-with-lease
