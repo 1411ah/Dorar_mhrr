@@ -473,6 +473,8 @@ def extract_content(html):
         for a in art.find_all("a"):
             if re.search(r"السابق|التالي|الصفحة|المراجع|اعتماد", a.get_text()):
                 a.decompose()
+            else:
+                a.unwrap()  # احتفظ بالنص واحذف وسم الرابط فقط
         for i in range(1, 7):
             for h in art.find_all(f"h{i}"):
                 h.replace_with(f'<h{min(i+2,6)}>{h.get_text(strip=True)}</h{min(i+2,6)}>')
@@ -521,7 +523,9 @@ def extract_article_content(html):
             title = f"<strong>{h.get_text(strip=True)}</strong> — " if h else ""
             details = []
             for strong in art.find_all("strong"):
-                label = strong.get_text(strip=True).replace(":", "").strip()
+                # النص المباشر فقط (بدون الـ span الداخلي)
+                label = "".join(t for t in strong.strings
+                                if t.parent == strong).strip().rstrip(":")
                 val_span = strong.find("span", class_="primary-text-color")
                 if not val_span:
                     val_span = strong.find("span")
